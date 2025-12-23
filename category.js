@@ -1,0 +1,941 @@
+import { logoutUser, onAuthChange } from "./js/auth.js";
+import { app } from "./js/firebase.js";
+import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+import { getStorage, ref, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-storage.js";
+import {
+  getFirestore,
+  collection,
+  getDocs,
+  doc,
+  getDoc,
+  addDoc,
+  updateDoc,
+  query,
+  where,
+  orderBy,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+import { initializeImageSliders } from './imageSlider.js';
+import { showLoader, hideLoader } from './loader.js';
+import { showNotification } from './notifications.js';
+import { animateButton, animateIconToCart, updateCartCounter, updateWishlistCounter, updateChatCounter } from './js/utils.js';
+
+// Initialize Firebase services
+const auth = getAuth(app);
+const storage = getStorage(app);
+const firestore = getFirestore(app);
+
+// RateLimiter class definition
+class RateLimiter {
+  constructor(maxRequests, interval) {
+    this.maxRequests = maxRequests;
+    this.interval = interval;
+    this.requests = [];
+  }
+
+  canProceed() {
+    const now = Date.now();
+    this.requests = this.requests.filter(timestamp => now - timestamp < this.interval);
+    if (this.requests.length < this.maxRequests) {
+      this.requests.push(now);
+      return true;
+    }
+    return false;
+  }
+}
+
+// Create centralized error handling
+const errorHandler = {
+  network: (error) => {
+    showNotification('Network error', 'error');
+  },
+  auth: (error) => {
+    showNotification('Authentication error', 'error');
+  }
+};
+
+// Breadcrumb navigation state
+let currentCategory = null;
+let currentSubcategory = null;
+let currentBrand = null;
+
+// Category hierarchy for breadcrumb navigation
+const categoryHierarchy = {
+    fashion: {
+        label: "Fashion & Apparel",
+        subcategories: {
+            "mens-wear": { label: "Men's Wear" },
+            "womens-wear": { label: "Women's Wear" },
+            "kids-wear": { label: "Kids Wear" }
+        }
+    },
+    electronics: {
+        label: "Electronics",
+        subcategories: {
+            "mobile-accessories": { label: "Mobile Accessories" },
+            "audio": { label: "Audio Devices" },
+            "computers": { label: "Computer Accessories" }
+        }
+    },
+    phones: {
+        label: "Mobile Phones & Tablets",
+        subcategories: {
+            "smartphones": { label: "Smartphones" },
+            "tablets": { label: "Tablets" }
+        }
+    },
+    beauty: {
+        label: "Beauty & Personal Care",
+        subcategories: {
+            "skincare": { label: "Skincare" },
+            "makeup": { label: "Makeup" },
+            "haircare": { label: "Hair Care" }
+        }
+    },
+    kitchenware: {
+        label: "Kitchenware & Home",
+        subcategories: {
+            "cookware": { label: "Cookware" },
+            "appliances": { label: "Kitchen Appliances" }
+        }
+    },
+    furniture: {
+        label: "Furniture",
+        subcategories: {
+            "living-room": { label: "Living Room" },
+            "bedroom": { label: "Bedroom" }
+        }
+    },
+    accessories: {
+        label: "Accessories",
+        subcategories: {
+            "bags": { label: "Bags" },
+            "jewelry": { label: "Jewelry" }
+        }
+    },
+    foodstuffs: {
+        label: "Foodstuffs",
+        subcategories: {
+            "grains": { label: "Grains" },
+            "spices": { label: "Spices" }
+        }
+    },
+    pharmaceutical: {
+        label: "Pharmaceutical",
+        subcategories: {
+            "medicines": { label: "Medicines" },
+            "supplements": { label: "Supplements" }
+        }
+    },
+    "student-centre": {
+        label: "Student Centre",
+        subcategories: {
+            "textbooks": { label: "Textbooks" },
+            "stationery": { label: "Stationery" }
+        }
+    },
+    kids: {
+        label: "Kids",
+        subcategories: {
+            "toys": { label: "Toys" },
+            "clothing": { label: "Clothing" }
+        }
+    },
+    rentals: {
+        label: "Rentals",
+        subcategories: {
+            "apartments": { label: "Apartments" },
+            "houses": { label: "Houses" }
+        }
+    },
+    "service-men": {
+        label: "Service Men",
+        subcategories: {
+            "plumbing": { label: "Plumbing" },
+            "electrical": { label: "Electrical" }
+        }
+    }
+};
+
+// Cookie helper functions
+function setCookie(name, value, days = 1) {
+    const expires = new Date();
+    expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
+    document.cookie = `${name}=${encodeURIComponent(JSON.stringify(value))};expires=${expires.toUTCString()};path=/`;
+}
+
+// Show quantity modal for Buy Now
+function showQuantityModal(listingId, listing, isAddToCart = false) {
+    let selectedVariation = null;
+    let price = listing.price;
+    let maxStock = listing.totalStock || 10;
+
+    // If there are variations, show mini-cards and select the first by default
+    let variationsHTML = '';
+    if (listing.variations && listing.variations.length > 0) {
+        variationsHTML = '<div class="modal-variations"><h4>Available Variations:</h4><div class="variations-grid">';
+        listing.variations.forEach((variation, idx) => {
+            variationsHTML += `
+                <div class="variation-mini-card" data-variation-index="${idx}">
+                    ${variation.photoUrl ? `<img src="${variation.photoUrl}" alt="${variation.title}">` : '<i class="fas fa-box"></i>'}
+                    <p><strong>${variation.title}</strong></p>
+                    <p class="variation-attr">${variation.attr_name}</p>
+                    <p class="variation-stock">${variation.stock} units</p>
+                </div>
+            `;
+        });
+        variationsHTML += '</div></div>';
+        // Default to first variation
+        selectedVariation = listing.variations[0];
+        price = selectedVariation.price || listing.price;
+        maxStock = selectedVariation.stock || 10;
+    }
+
+    const modal = document.createElement('div');
+    modal.className = 'quantity-modal';
+    modal.innerHTML = `
+        <div class="quantity-modal-content">
+            <h3>Select Quantity</h3>
+            <p>Available stock: <span id="modalStock">${maxStock}</span> units</p>
+            ${variationsHTML}
+            <div class="quantity-selector">
+                <button class="qty-btn minus">-</button>
+                <input type="number" id="buyNowQuantity" value="1" min="1" max="${maxStock}">
+                <button class="qty-btn plus">+</button>
+            </div>
+            <div class="quantity-total">
+                <p>Total: <span id="quantityTotal">KES ${price.toLocaleString()}</span></p>
+            </div>
+            <div class="quantity-actions">
+                <button class="cancel-btn">Cancel</button>
+                <button class="confirm-btn">${isAddToCart ? 'Add to Cart' : 'Proceed to Checkout'}</button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const quantityInput = modal.querySelector('#buyNowQuantity');
+    const totalEl = modal.querySelector('#quantityTotal');
+    const minusBtn = modal.querySelector('.minus');
+    const plusBtn = modal.querySelector('.plus');
+    const cancelBtn = modal.querySelector('.cancel-btn');
+    const confirmBtn = modal.querySelector('.confirm-btn');
+    const stockEl = modal.querySelector('#modalStock');
+
+    // Select first variation by default if present
+    if (listing.variations && listing.variations.length > 0) {
+        const cards = modal.querySelectorAll('.variation-mini-card');
+        if (cards.length > 0) {
+            cards[0].classList.add('selected');
+        }
+        cards.forEach((card, idx) => {
+            card.addEventListener('click', () => {
+                cards.forEach(c => c.classList.remove('selected'));
+                card.classList.add('selected');
+                selectedVariation = listing.variations[idx];
+                price = selectedVariation.price || listing.price;
+                maxStock = selectedVariation.stock || 10;
+                quantityInput.max = maxStock;
+                stockEl.textContent = maxStock;
+                updateTotal();
+            });
+        });
+    }
+
+    const updateTotal = () => {
+        const qty = parseInt(quantityInput.value) || 1;
+        totalEl.textContent = `KES ${(price * qty).toLocaleString()}`;
+    };
+
+    minusBtn.addEventListener('click', () => {
+        if (parseInt(quantityInput.value) > 1) {
+            quantityInput.value = parseInt(quantityInput.value) - 1;
+            updateTotal();
+        }
+    });
+
+    plusBtn.addEventListener('click', () => {
+        if (parseInt(quantityInput.value) < maxStock) {
+            quantityInput.value = parseInt(quantityInput.value) + 1;
+            updateTotal();
+        }
+    });
+
+    quantityInput.addEventListener('input', updateTotal);
+
+    cancelBtn.addEventListener('click', () => {
+        modal.remove();
+    });
+
+    confirmBtn.addEventListener('click', async () => {
+        const quantity = parseInt(quantityInput.value);
+        if (isAddToCart) {
+            const user = auth.currentUser;
+            if (user) {
+                try {
+                    await addDoc(collection(firestore, `users/${user.uid}/cart`), {
+                        userId: user.uid,
+                        listingId: listingId,
+                        quantity: quantity,
+                        selectedVariation: selectedVariation,
+                        ...listing,
+                        addedAt: new Date().toISOString()
+                    });
+                    showNotification("Item added to cart!");
+                    const addToCartBtn = document.querySelector(`[data-listing-id="${listingId}"].add-to-cart-btn`);
+                    if (addToCartBtn) {
+                        animateButton(addToCartBtn, 'sounds/pop-39222.mp3');
+                        animateIconToCart(addToCartBtn, 'cart-icon');
+                    }
+                    await updateCartCounter(firestore, user.uid);
+                } catch (error) {
+                    showNotification("Failed to add item to cart. Please try again.");
+                }
+            }
+        } else {
+            proceedToBuyNowCheckout(quantity, listing, listingId, selectedVariation);
+        }
+        modal.remove();
+    });
+
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            modal.remove();
+        }
+    });
+}
+
+// Add this function for Buy Now checkout
+function proceedToBuyNowCheckout(quantity, listing, listingId, selectedVariation = null) {
+    try {
+        const buyNowData = {
+            listingId: listingId,
+            name: listing.name,
+            price: listing.price,
+            quantity: quantity,
+            selectedVariation: selectedVariation,
+            photoTraceUrl: listing.photoTraceUrl,
+            imageUrls: listing.imageUrls,
+            brand: listing.brand,
+            category: listing.category
+        };
+        setCookie('buyNowItem', buyNowData, 1);
+        showNotification("Proceeding to checkout!");
+        // Optionally animate the Buy Now button if you have a reference
+        // animateButton(document.querySelector(`[data-listing-id="${listingId}"] .buy-now-btn`));
+        setTimeout(() => {
+            window.location.href = "checkout.html?source=buynow";
+        }, 500);
+    } catch (error) {
+        console.error("Error proceeding to checkout:", error);
+        showNotification("Failed to proceed to checkout. Please try again.");
+    }
+}
+
+// Function to render breadcrumb navigation
+function renderBreadcrumb() {
+  const breadcrumbContainer = document.getElementById('breadcrumb-nav');
+  if (!breadcrumbContainer) return;
+
+  let breadcrumbHTML = '<div class="breadcrumb-items">';
+  
+  // Category level
+  breadcrumbHTML += `<span class="breadcrumb-item ${!currentSubcategory ? 'active' : ''}" onclick="resetToCategory()">
+    ${categoryHierarchy[currentCategory]?.label || currentCategory}
+  </span>`;
+  
+  // Subcategory level
+  if (currentSubcategory) {
+    breadcrumbHTML += `<i class="fas fa-chevron-right breadcrumb-separator"></i>
+    <span class="breadcrumb-item ${!currentBrand ? 'active' : ''}" onclick="resetToSubcategory()">
+      ${categoryHierarchy[currentCategory]?.subcategories[currentSubcategory]?.label || currentSubcategory}
+    </span>`;
+  }
+  
+  // Brand level
+  if (currentBrand) {
+    breadcrumbHTML += `<i class="fas fa-chevron-right breadcrumb-separator"></i>
+    <span class="breadcrumb-item active">${currentBrand}</span>`;
+  }
+  
+  breadcrumbHTML += '</div>';
+  breadcrumbContainer.innerHTML = breadcrumbHTML;
+}
+
+// Function to render subcategory cards
+function renderSubcategoryCards() {
+  const subcategoryContainer = document.getElementById('subcategory-cards');
+  if (!subcategoryContainer) return;
+
+  if (currentSubcategory || currentBrand) {
+    subcategoryContainer.style.display = 'none';
+    return;
+  }
+
+  const subcategories = categoryHierarchy[currentCategory]?.subcategories || {};
+  if (Object.keys(subcategories).length === 0) {
+    subcategoryContainer.style.display = 'none';
+    return;
+  }
+
+  subcategoryContainer.style.display = 'grid';
+  subcategoryContainer.innerHTML = '';
+
+  Object.keys(subcategories).forEach(key => {
+    const subcategory = subcategories[key];
+    const card = document.createElement('div');
+    card.className = 'filter-card';
+    card.innerHTML = `
+      <i class="fas fa-folder"></i>
+      <p>${subcategory.label}</p>
+    `;
+    card.onclick = () => selectSubcategory(key);
+    subcategoryContainer.appendChild(card);
+  });
+}
+
+// Function to render brand cards
+async function renderBrandCards() {
+  const brandContainer = document.getElementById('brand-cards');
+  if (!brandContainer) return;
+
+  if (!currentSubcategory || currentBrand) {
+    brandContainer.style.display = 'none';
+    return;
+  }
+
+  try {
+    // Get unique brands from listings
+    const listingsSnapshot = await getDocs(collection(firestore, "Listings"));
+    const brands = new Set();
+    
+    listingsSnapshot.docs.forEach(doc => {
+      const listing = doc.data();
+      if (listing.category === currentCategory && listing.subcategory === currentSubcategory && listing.brand) {
+        brands.add(listing.brand);
+      }
+    });
+
+    if (brands.size === 0) {
+      brandContainer.style.display = 'none';
+      return;
+    }
+
+    brandContainer.style.display = 'grid';
+    brandContainer.innerHTML = '';
+
+    Array.from(brands).forEach(brand => {
+      const card = document.createElement('div');
+      card.className = 'filter-card';
+      card.innerHTML = `
+        <i class="fas fa-tag"></i>
+        <p>${brand}</p>
+      `;
+      card.onclick = () => selectBrand(brand);
+      brandContainer.appendChild(card);
+    });
+  } catch (error) {
+    console.error("Error loading brands:", error);
+  }
+}
+
+// Navigation functions
+window.resetToCategory = function() {
+  currentSubcategory = null;
+  currentBrand = null;
+  renderBreadcrumb();
+  renderSubcategoryCards();
+  renderBrandCards();
+  loadFeaturedListings();
+};
+
+window.resetToSubcategory = function() {
+  currentBrand = null;
+  renderBreadcrumb();
+  renderBrandCards();
+  loadFeaturedListings();
+};
+
+function selectSubcategory(subcategory) {
+  currentSubcategory = subcategory;
+  currentBrand = null;
+  renderBreadcrumb();
+  renderSubcategoryCards();
+  renderBrandCards();
+  loadFeaturedListings();
+}
+
+function selectBrand(brand) {
+  currentBrand = brand;
+  renderBreadcrumb();
+  renderSubcategoryCards();
+  renderBrandCards();
+  loadFeaturedListings();
+}
+
+// Function to load and display filtered listings based on category and filter criteria
+const loadFeaturedListings = async (filterCriteria = {}) => {
+  showLoader();
+  try {
+    const listingsContainer = document.querySelector(".listings-container");
+    const urlParams = new URLSearchParams(window.location.search);
+    const category = urlParams.get('category');
+    
+    if (!category) {
+      throw new Error("Category is not defined");
+    }
+    
+    currentCategory = category;
+    listingsContainer.dataset.category = category;
+    listingsContainer.innerHTML = "";
+
+    // Update category title and description
+    const categoryTitle = document.getElementById('category-title');
+    const categoryDescription = document.getElementById('category-description');
+    categoryTitle.textContent = (categoryHierarchy[category]?.label || category.replace(/-/g, ' ')).toUpperCase();
+    categoryDescription.textContent = `Browse the best deals and offers in the ${categoryHierarchy[category]?.label || category.replace(/-/g, ' ')} category.`;
+
+    const listingsSnapshot = await getDocs(collection(firestore, "Listings"));
+    const listings = listingsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    // Filter listings based on category, subcategory, and brand
+    let filteredListings = listings.filter(listing => listing.category === category);
+    
+    if (currentSubcategory) {
+      filteredListings = filteredListings.filter(listing => listing.subcategory === currentSubcategory);
+    }
+    
+    if (currentBrand) {
+      filteredListings = filteredListings.filter(listing => listing.brand === currentBrand);
+    }
+
+    // Apply additional filter criteria
+    if (filterCriteria.orderBy) {
+      filteredListings.sort((a, b) => {
+        if (filterCriteria.orderDirection === 'desc') {
+          return b[filterCriteria.orderBy] - a[filterCriteria.orderBy];
+        }
+        return a[filterCriteria.orderBy] - b[filterCriteria.orderBy];
+      });
+    }
+    if (filterCriteria.priceRange) {
+      const [minPrice, maxPrice] = filterCriteria.priceRange.split('-').map(Number);
+      filteredListings = filteredListings.filter(listing => listing.price >= minPrice && listing.price <= maxPrice);
+    }
+
+    if (filteredListings.length === 0) {
+      listingsContainer.innerHTML = "<p>No listings found in this category.</p>";
+      hideLoader();
+      return;
+    }
+
+    for (const listing of filteredListings) {
+      const uploaderId = listing.uploaderId || listing.userId;
+      let userData = {};
+
+      if (uploaderId) {
+        try {
+          const userDoc = await getDoc(doc(firestore, "Users", uploaderId));
+          if (userDoc.exists()) {
+            userData = userDoc.data();
+          }
+        } catch (error) {
+          console.error(`Error fetching user data:`, error);
+        }
+      }
+
+      const displayName = userData.name || userData.username || "Unknown User";
+      const imageUrls = listing.imageUrls || [];
+      const firstImageUrl = imageUrls.length > 0 ? imageUrls[0] : "images/product-placeholder.png";
+      const sellerId = listing.uploaderId || listing.userId;
+
+      const listingElement = document.createElement("div");
+      listingElement.className = "listing-item";
+      listingElement.innerHTML = `
+        <div class="product-item">
+          <div class="profile">
+            <img src="${userData.profilePicUrl || "images/profile-placeholder.png"}" alt="${displayName}" onclick="goToUserProfile('${uploaderId}')">
+            <div>
+              <p><strong>${displayName}</strong></p>
+              <p>${listing.name}</p>
+            </div>
+            <div class="product-actions">
+              <div>
+                <i class="fas fa-comments" onclick="goToChat('${sellerId}', '${listing.id}')"></i>
+                <small> Message </small>
+              </div>
+              <div>
+                <i class="fas fa-share" onclick="shareProduct('${listing.id}', '${listing.name}', '${listing.description}', '${firstImageUrl}')"></i>
+                <small> Share </small>
+              </div>
+            </div>
+          </div>
+          <div class="product-image-container" onclick="goToProduct('${listing.id}')">
+            <div class="image-slider">
+              ${imageUrls.map(url => `
+                <img src="${url}" alt="Product Image" class="product-image">
+              `).join('')}
+              <div class="product-tags">
+                ${listing.subcategory ? `<span class="product-condition">${listing.subcategory}</span>` : ''}
+                ${listing.brand ? `<span class="product-age">${listing.brand} </span>` : ''}
+              </div>
+            </div>
+          </div>
+          <p class="product-price">
+            <strong>KES ${listing.price}</strong>
+            <span class="initial-price">${listing.initialPrice ? `<s>KES ${listing.initialPrice}</s>` : ''}</span>
+          </p>
+          <p class="product-description">${listing.description ? listing.description : ''}</p>
+          <div class="product-actions">
+            <div>
+              <i class="fas fa-cart-plus add-to-cart-btn" data-listing-id="${listing.id}"></i>
+              <p>Cart</p>
+            </div>
+            <div>
+              <i class="fas fa-bolt buy-now-btn" data-listing-id="${listing.id}"></i>
+              <p>Buy Now</p>
+            </div>
+            <div>
+              <i class="fas fa-heart wishlist-btn" data-listing-id="${listing.id}"></i>
+              <p>Wishlist</p>
+            </div>
+          </div>
+        </div>
+      `;
+
+      listingsContainer.appendChild(listingElement);
+    }
+
+    // Initialize image sliders after content is loaded
+    initializeImageSliders();
+    
+    // Add event listeners for cart, wishlist, and buy now buttons
+    document.querySelectorAll('.add-to-cart-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        addToCart(btn.dataset.listingId, btn);
+      });
+    });
+    
+    document.querySelectorAll('.wishlist-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        addToWishlist(btn.dataset.listingId, btn);
+      });
+    });
+    
+    document.querySelectorAll('.buy-now-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        buyNow(btn.dataset.listingId, btn);
+      });
+    });
+
+    hideLoader();
+
+  } catch (error) {
+    console.error("Error loading featured listings:", error);
+    showNotification("Failed to load listings. Please try again later.", "error");
+    hideLoader();
+  }
+};
+
+// Add product navigation function
+window.goToProduct = function(productId) {
+  window.location.href = `product.html?id=${productId}`;
+};
+
+// Function to change images in the gallery
+window.changeImage = function (direction, listingId) {
+  const galleryImage = document.getElementById(`galleryImage-${listingId}`);
+  const imageUrls = JSON.parse(galleryImage.dataset.imageUrls);
+  let currentIndex = imageUrls.indexOf(galleryImage.src);
+
+  currentIndex = (currentIndex + direction + imageUrls.length) % imageUrls.length;
+  galleryImage.src = imageUrls[currentIndex];
+};
+
+async function addToCart(listingId, buttonElement) {
+  const user = auth.currentUser;
+  if (user) {
+    const listingRef = doc(firestore, `Listings/${listingId}`);
+    const snapshot = await getDoc(listingRef);
+    const listing = snapshot.data();
+
+    try {
+      if (listing.variations && listing.variations.length > 0) {
+        showQuantityModal(listingId, listing, true);
+      } else {
+        await addDoc(collection(firestore, `users/${user.uid}/cart`), {
+          userId: user.uid,
+          listingId: listingId,
+          quantity: 1,
+          ...listing,
+          addedAt: new Date().toISOString()
+        });
+        showNotification("Item added to cart!");
+        if (buttonElement) {
+          animateButton(buttonElement, 'sounds/pop-39222.mp3');
+          const cartIcon = document.querySelector('#cart-icon');
+          if (cartIcon) {
+            animateIconToCart(buttonElement, cartIcon);
+          }
+        }
+        await updateCartCounter(firestore, user.uid);
+      }
+    } catch (error) {
+      showNotification("Failed to add item to cart. Please try again.", "error");
+    }
+  } else {
+    showNotification("Please log in to add items to the cart.", "error");
+  }
+}
+
+async function addToWishlist(listingId, buttonElement) {
+  const user = auth.currentUser;
+  if (user) {
+    const listingRef = doc(firestore, `Listings/${listingId}`);
+    const snapshot = await getDoc(listingRef);
+    const listing = snapshot.data();
+
+    try {
+      await addDoc(collection(firestore, `users/${user.uid}/wishlist`), {
+        userId: user.uid,
+        listingId: listingId,
+        ...listing,
+        addedAt: new Date().toISOString()
+      });
+      showNotification("Item added to wishlist!");
+      
+      if (buttonElement) {
+        animateButton(buttonElement, 'sounds/pop-268648.mp3');
+        
+        const wishlistIcon = document.querySelector('#wishlist-icon');
+        if (wishlistIcon) {
+          animateIconToCart(buttonElement, wishlistIcon);
+        }
+      }
+      
+      await updateWishlistCounter(firestore, user.uid);
+    } catch (error) {
+      console.error("Error adding item to wishlist:", error);
+      showNotification("Failed to add item to wishlist. Please try again.", "error");
+    }
+  } else {
+    showNotification("Please log in to add items to the wishlist.", "error");
+  }
+}
+
+async function buyNow(listingId, buttonElement) {
+  const user = auth.currentUser;
+  if (user) {
+    const listingRef = doc(firestore, `Listings/${listingId}`);
+    const snapshot = await getDoc(listingRef);
+    const listing = snapshot.data();
+
+    try {
+      showQuantityModal(listingId, listing, false);
+    } catch (error) {
+      showNotification("Failed to proceed to checkout. Please try again.", "error");
+    }
+  } else {
+    showNotification("Please log in to buy items.", "error");
+  }
+}
+
+// Function to redirect to chat with seller
+window.goToChat = function (sellerId, listingId) {
+  const user = auth.currentUser;
+  if (user) {
+    window.location.href = `chat.html?sellerId=${sellerId}&listingId=${listingId}`;
+  } else {
+    showNotification("Please log in to message the seller.", "error");
+  }
+};
+
+// Function to redirect to user profile page
+window.goToUserProfile = function(userId) {
+  window.location.href = `user.html?userId=${userId}`;
+};
+
+// Function to share product
+window.shareProduct = function (listingId, name, description, imageUrl) {
+  const productUrl = `${window.location.origin}/public/product.html?id=${listingId}`;
+  if (navigator.share) {
+    navigator.share({
+      title: name,
+      text: description,
+      url: productUrl,
+    }).then(() => {
+      console.log('Thanks for sharing!');
+    }).catch(console.error);
+  } else {
+    const tempInput = document.createElement('input');
+    document.body.appendChild(tempInput);
+    tempInput.value = productUrl;
+    tempInput.select();
+    document.execCommand('copy');
+    document.body.removeChild(tempInput);
+    showNotification('Product link copied to clipboard!');
+  }
+};
+
+// Search functionality
+const searchForm = document.getElementById('searchForm');
+const searchInput = document.getElementById('searchInput');
+const searchSuggestions = document.getElementById('searchSuggestions');
+
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+
+// Implement rate limiting for search
+const rateLimiter = new RateLimiter(10, 1000);
+
+const performSearch = async (searchTerm) => {
+  if (!rateLimiter.canProceed()) {
+    showNotification('Too many requests. Please try again later.', 'error');
+    return;
+  }
+
+  if (!searchTerm || searchTerm.length < 2) {
+    searchSuggestions.style.display = 'none';
+    return;
+  }
+  try {
+    const listingsRef = collection(firestore, "Listings");
+    const q = query(
+      listingsRef, 
+      where("name", ">=", searchTerm.toLowerCase()),
+      where("name", "<=", searchTerm.toLowerCase() + '\uf8ff')
+    );
+    const querySnapshot = await getDocs(q);
+    searchSuggestions.innerHTML = '';
+    
+    if (querySnapshot.empty) {
+      searchSuggestions.style.display = 'none';
+      return;
+    }
+
+    querySnapshot.forEach((doc) => {
+      const listing = doc.data();
+      const div = document.createElement('div');
+      div.className = 'suggestion-item';
+      div.innerHTML = `
+        <img src="${listing.imageUrls[0] || 'images/product-placeholder.png'}" alt="${listing.name}">
+        <span>${listing.name}</span>
+        <span>KES ${listing.price}</span>
+      `;
+      div.addEventListener('click', () => {
+        window.location.href = `product.html?id=${doc.id}`;
+      });
+      searchSuggestions.appendChild(div);
+    });
+    searchSuggestions.style.display = 'block';
+  } catch (error) {
+    errorHandler.network(error);
+  }
+};
+
+const debouncedSearch = debounce((e) => {
+  performSearch(e.target.value);
+}, 300);
+
+// Initialize everything when DOM is loaded
+document.addEventListener("DOMContentLoaded", async () => {
+  await loadFeaturedListings();
+
+  // Setup search event listeners
+  if (searchInput) {
+    searchInput.addEventListener('input', debouncedSearch);
+  }
+
+  if (searchForm) {
+    searchForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const searchTerm = searchInput.value;
+      window.location.href = `search-results.html?q=${encodeURIComponent(searchTerm)}`;
+    });
+  }
+
+  // Setup click outside listener for search suggestions
+  document.addEventListener('click', (e) => {
+    if (searchSuggestions && !searchSuggestions.contains(e.target) && !searchInput.contains(e.target)) {
+      searchSuggestions.style.display = 'none';
+    }
+  });
+
+  // Ensure counters are always available
+  if (auth.currentUser) {
+    await updateCartCounter(firestore, auth.currentUser.uid);
+    await updateWishlistCounter(firestore, auth.currentUser.uid);
+    await updateChatCounter(firestore, auth.currentUser.uid);
+  }
+
+  // Check if user profile is set up
+  const user = auth.currentUser;
+  if (user) {
+    const userDoc = await getDoc(doc(firestore, "Users", user.uid));
+    const userData = userDoc.data();
+    if (userData && (!userData.name || !userData.phone)) {
+      const profileNotif = document.getElementById('profile-notification');
+      if (profileNotif) {
+        profileNotif.style.display = 'flex';
+      }
+    }
+  }
+});
+
+onAuthStateChanged(auth, async (user) => {
+  if (user) {
+    const userDoc = await getDoc(doc(firestore, "Users", user.uid));
+    if (userDoc.exists()) {
+      const userData = userDoc.data();
+      if (!userData.name || !userData.phone) {
+        const profileNotif = document.getElementById('profile-notification');
+        if (profileNotif) {
+          profileNotif.style.display = 'flex';
+        }
+      }
+    }
+  }
+});
+
+// Add filter functionality
+const filterForm = document.getElementById('filterForm');
+const filterToggleButton = document.getElementById('filterToggleButton');
+
+if (filterToggleButton) {
+  filterToggleButton.addEventListener('click', () => {
+    if (filterForm.style.display === 'none' || filterForm.style.display === '') {
+      filterForm.style.display = 'block';
+      filterToggleButton.innerHTML = '<i class="fas fa-times"></i>';
+    } else {
+      filterForm.style.display = 'none';
+      filterToggleButton.innerHTML = '<i class="fas fa-filter"></i>';
+    }
+  });
+}
+
+if (filterForm) {
+  filterForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const orderBy = document.querySelector('input[name="orderBy"]:checked')?.value;
+    const orderDirection = document.querySelector('input[name="orderDirection"]:checked')?.value;
+    const priceRange = document.getElementById('priceRange')?.value;
+    await loadFeaturedListings({ orderBy, orderDirection, priceRange });
+    
+    // Close filter after applying
+    filterForm.style.display = 'none';
+    filterToggleButton.innerHTML = '<i class="fas fa-filter"></i>';
+  });
+}

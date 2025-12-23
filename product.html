@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Product Details - Oda Pap B2B</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="product.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+</head>
+<body>
+    <header>
+        <div class="top-bar">
+            <div class="logo-container">
+                <img src="images/logo.jpg" alt="Oda Pap Logo" class="logo">
+                <span class="logo-text">Oda Pap </span>
+            </div>
+            <button onclick="window.history.back()" class="back-button">
+                <i class="fas fa-arrow-left"></i> Back
+            </button>
+        </div>
+        <div class="border-line"></div>
+        <div class="nav-bar" id="nav-bar">
+            <button class="home-button" onclick="location.href='index.html'">
+                <i class="fas fa-home"></i>
+                <p>HOME</p>
+            </button>
+            <button class="home-button" onclick="location.href='notification.html'" style="position: relative;">
+                <i class="fas fa-bell" id="notification-icon"></i>
+                <span class="cart-notification"></span>
+                <p>CHAT</p>
+            </button>
+            <button class="home-button" onclick="location.href='cart.html'" style="position: relative;">
+                <i class="fas fa-shopping-cart" id="cart-icon"></i>
+                <span class="cart-notification"></span>
+                <p>CART</p>
+            </button>
+            <button class="home-button" onclick="location.href='wishlist.html'" style="position: relative;">
+                <i class="fas fa-heart" id="wishlist-icon"></i>
+                <span class="cart-notification"></span>
+                <p>WISHLIST</p>
+            </button>
+            <button class="home-button" onclick="location.href='profile.html'">
+                <i class="fas fa-user-circle"></i>
+                <p>PROFILE</p>
+            </button>
+        </div>
+    </header>
+
+    <main class="product-page">
+        <!-- Loading Spinner -->
+        <div id="loadingSpinner" class="loading-spinner">
+            <i class="fas fa-spinner fa-spin"></i>
+        </div>
+
+        <!-- Error Message -->
+        <div id="errorMessage" class="error-message"></div>
+
+        <!-- Product Container -->
+        <div class="product-container" id="productContent">
+            <!-- Left Column: Image Gallery -->
+            <div class="product-gallery">
+                <div class="main-image-container">
+                    <button class="nav-btn prev" id="prevBtn">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
+                    <img id="mainImage" src="" alt="Product Image">
+                    <button class="nav-btn next" id="nextBtn">
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
+                    <div class="image-counter">
+                        <span id="currentImageIndex">1</span>/<span id="totalImages">5</span>
+                    </div>
+                </div>
+                <div class="thumbnail-container" id="thumbnailContainer"></div>
+            </div>
+
+            <!-- Right Column: Product Details -->
+            <div class="product-details">
+                <!-- Product Header -->
+                <div class="product-header">
+                    <div class="product-title">
+                        <h1 id="productName"></h1>
+                        <div class="product-meta-date">
+                            <i class="fas fa-calendar"></i>
+                            <span id="productDate"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Price Section -->
+                <div class="price-section">
+                    <div class="current-price">
+                        <span class="label">Wholesale Price:</span>
+                        <span id="productPrice" class="amount"></span>
+                    </div>
+                    <div class="initial-price" id="initialPriceContainer">
+                        <span class="label">Retail Price:</span>
+                        <span id="initialPrice" class="amount strikethrough"></span>
+                        <span id="discountBadge" class="discount-badge"></span>
+                    </div>
+                </div>
+
+                <!-- Product Info -->
+                <div class="product-info-grid">
+                    <div class="info-item">
+                        <i class="fas fa-tag"></i>
+                        <span class="label">Category:</span>
+                        <span id="productCategory"></span>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-layer-group"></i>
+                        <span class="label">Sub-Category:</span>
+                        <span id="productSubcategory"></span>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-copyright"></i>
+                        <span class="label">Brand:</span>
+                        <span id="productBrand"></span>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-boxes"></i>
+                        <span class="label">Total Stock:</span>
+                        <span id="productTotalStock"></span>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-map-marker-alt"></i>
+                        <span class="label">Location:</span>
+                        <span id="productLocation"></span>
+                    </div>
+                </div>
+
+                <!-- Variations Section -->
+                <div id="variationsContainer" class="variations-section">
+                    <h3><i class="fas fa-th-large"></i> Product Variations</h3>
+                    <p class="variations-subtitle">Select your preferred variation</p>
+                    <div id="variationsList" class="variations-list"></div>
+                </div>
+
+                <!-- Bulk Pricing Section -->
+                <div id="bulkPricingContainer" class="bulk-pricing-section">
+                    <h3><i class="fas fa-layer-group"></i> Bulk Discounts</h3>
+                    <div id="bulkPricingList" class="bulk-pricing-list"></div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="quick-actions">
+                    <button id="buyNowBtn" class="primary-btn">
+                        <i class="fas fa-bolt"></i> Buy Now
+                    </button>
+                    <button id="addToCartBtn" class="secondary-btn">
+                        <i class="fas fa-cart-plus"></i> Add to Cart
+                    </button>
+                    <button id="wishlistBtn" class="icon-btn">
+                        <i class="fas fa-heart"></i>
+                    </button>
+                    <button id="copyLinkBtn" class="icon-btn">
+                        <i class="fas fa-share"></i>
+                    </button>
+                </div>
+
+                <!-- Description -->
+                <div class="description-section">
+                    <h3><i class="fas fa-align-left"></i> Product Description</h3>
+                    <p id="productDescription"></p>
+                </div>
+
+                <!-- Seller Information -->
+                <div class="seller-section">
+                    <h3><i class="fas fa-store"></i> Seller Information</h3>
+                    <div class="seller-info">
+                        <img id="sellerImage" src="images/default-profile.png" alt="Seller">
+                        <div class="seller-details">
+                            <h4 id="sellerName"></h4>
+                            <div class="seller-stats">
+                                <span>
+                                    <i class="fas fa-star"></i> Verified Seller
+                                </span>
+                            </div>
+                        </div>
+                        <button id="messageSellerBtn" class="message-btn">
+                            <i class="fas fa-comment"></i> Message Seller
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Safety Tips -->
+                <div class="safety-tips">
+                    <h3><i class="fas fa-shield-alt"></i> B2B Safety Tips</h3>
+                    <ul>
+                        <li>Verify seller credentials before bulk orders</li>
+                        <li>Request samples for quality inspection</li>
+                        <li>Use secure payment methods</li>
+                        <li>Confirm stock availability before ordering</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Similar Products -->
+        <section class="similar-products">
+            <h2><i class="fas fa-boxes"></i> Similar Products</h2>
+            <p class="section-subtitle">Recommended based on product match</p>
+            <div id="similarProductsContainer" class="products-grid">
+                <!-- Similar products will be dynamically added here -->
+            </div>
+        </section>
+    </main>
+
+    <!-- <div id="notification" class="notification">Link copied to clipboard!</div> -->
+    
+
+    <script type="module" src="product.js"></script>
+</body>
+</html>

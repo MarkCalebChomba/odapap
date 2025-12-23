@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Tracking - Oda Pap</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+</head>
+<body>
+    <header>
+        <div class="top-bar">
+            <div class="logo-container">
+                <img src="images/logo.jpg" alt="Oda Pap Logo" class="logo">
+                <span class="logo-text">Oda Pap</span>
+            </div>
+            <button onclick="window.history.back()" class="back-button">
+                <i class="fas fa-arrow-left"></i> Back
+            </button>
+        </div>
+    </header>
+
+    <main>
+        <div class="page-header">
+            <h1><i class="fas fa-box"></i> Order Tracking</h1>
+            <p>Track your orders and manage payments</p>
+        </div>
+
+        <div class="order-tracking-container">
+            <div class="filter-tabs">
+                <button class="tab-btn active" data-filter="all">All Orders</button>
+                <button class="tab-btn" data-filter="pending">Pending</button>
+                <button class="tab-btn" data-filter="unpaid">Unpaid</button>
+                <button class="tab-btn" data-filter="undelivered">In Transit</button>
+                <button class="tab-btn" data-filter="delivered">Delivered</button>
+            </div>
+
+            <div id="ordersList" class="orders-list">
+                <!-- Orders will be dynamically inserted here -->
+            </div>
+
+            <div id="emptyState" class="empty-state" style="display: none;">
+                <i class="fas fa-box-open"></i>
+                <h3>No orders found</h3>
+                <p>Your orders will appear here</p>
+                <a href="index.html" class="btn-primary">Continue Shopping</a>
+            </div>
+        </div>
+    </main>
+
+    <div id="repayModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Repay Order</h2>
+                <button class="close-btn" onclick="closeRepayModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <p id="repayOrderDetails"></p>
+                <p class="repay-amount" id="repayAmount"></p>
+            </div>
+            <div class="modal-actions">
+                <button onclick="proceedToRepay()" class="btn-primary">
+                    <i class="fas fa-credit-card"></i> Proceed to Payment
+                </button>
+                <button onclick="closeRepayModal()" class="btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <p>&copy; 2024 Oda Pap. All Rights Reserved.</p>
+    </footer>
+
+    <script type="module">
+        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+        import { getFirestore, collection, query, where, getDocs, doc, getDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+        import { app } from "./js/firebase.js";
+        import { showNotification } from './notifications.js';
+
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        let currentFilter = 'all';
+        let selectedOrder = null;
+
+        // Status configuration
+        const statusConfig = {
+            pending: { label: 'Pending', icon: 'hourglass-half', color: '#ff9800' },
+            unpaid: { label: 'Unpaid', icon: 'credit-card', color: '#f44336' },
+            undelivered: { label: 'In Transit', icon: 'truck', color: '#2196F3' },
+            delivered: { label: 'Delivered', icon: 'check-circle', color: '#4CAF50' }
+        };
+
+        // Load orders from checkout collection
+        async function loadOrders() {
+            const user = auth.currentUser;
+            if (!user) return;
+
+            try {
+                const ordersRef = collection(db, 'users', user.uid, 'checkout');
+                const snapshot = await getDocs(ordersRef);
+                const orders = [];
+
+                for (const doc of snapshot.docs) {
+                    const order = doc.data();
+                    orders.push({
+                        id: doc.id,
+                        ...order,
+                        createdAt: order.createdAt || new Date().toISOString()
+                    });
+                }
+
+                // Sort by date (newest first)
+                orders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+                displayOrders(orders);
+            } catch (error) {
+                console.error('Error loading orders:', error);
+                showNotification('Failed to load orders', 'error');
+            }
+        }
+
+        function displayOrders(allOrders) {
+            const ordersList = document.getElementById('ordersList');
+            const emptyState = document.getElementById('emptyState');
+
+            // Filter orders
+            let filteredOrders = allOrders;
+            if (currentFilter !== 'all') {
+                filteredOrders = allOrders.filter(order => {
+                    const status = order.status || 'pending';
+                    return status === currentFilter;
+                });
+            }
+
+            if (filteredOrders.length === 0) {
+                ordersList.innerHTML = '';
+                emptyState.style.display = 'block';
+                return;
+            }
+
+            emptyState.style.display = 'none';
+            ordersList.innerHTML = '';
+
+            filteredOrders.forEach(order => {
+                const status = order.status || 'pending';
+                const config = statusConfig[status];
+                const orderDate = new Date(order.createdAt);
+                const formattedDate = orderDate.toLocaleDateString('en-US', { 
+                    year: 'numeric', 
+                    month: 'short', 
+                    day: 'numeric' 
+                });
+
+                const card = document.createElement('div');
+                card.className = 'order-card';
+                card.innerHTML = `
+                    <div class="order-header">
+                        <div class="order-info">
+                            <h3>Order #${order.id.slice(-8).toUpperCase()}</h3>
+                            <p class="order-date"><i class="fas fa-calendar"></i> ${formattedDate}</p>
+                        </div>
+                        <div class="order-status" style="background: ${config.color}20; border-left: 4px solid ${config.color}">
+                            <i class="fas fa-${config.icon}"></i>
+                            <span style="color: ${config.color}">${config.label}</span>
+                        </div>
+                    </div>
+
+                    <div class="order-items">
+                        <div class="item">
+                            <img src="${order.photoTraceUrl || (order.imageUrls && order.imageUrls[0]) || 'images/product-placeholder.png'}" 
+                                 alt="${order.name}">
+                            <div class="item-details">
+                                <h4>${order.name}</h4>
+                                <p class="brand">${order.brand || 'Unknown'}</p>
+                                <p class="quantity">Qty: ${order.quantity || 1}</p>
+                            </div>
+                            <div class="item-price">
+                                <p class="price">KES ${(order.price * (order.quantity || 1)).toLocaleString()}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="order-footer">
+                        ${status === 'unpaid' ? `
+                            <button class="btn-repay" onclick="openRepayModal('${order.id}', '${order.name}', ${order.price * (order.quantity || 1)})">
+                                <i class="fas fa-redo"></i> Repay
+                            </button>
+                        ` : ''}
+                        <button class="btn-view-details" onclick="window.location.href='product.html?id=${order.listingId || ''}'">
+                            View Product
+                        </button>
+                    </div>
+                `;
+                ordersList.appendChild(card);
+            });
+        }
+
+        // Filter tabs functionality
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentFilter = btn.dataset.filter;
+                loadOrders();
+            });
+        });
+
+        // Repay modal functions
+        window.openRepayModal = function(orderId, productName, amount) {
+            selectedOrder = { orderId, productName, amount };
+            document.getElementById('repayOrderDetails').textContent = `Order for: ${productName}`;
+            document.getElementById('repayAmount').innerHTML = `<strong>Amount Due: KES ${amount.toLocaleString()}</strong>`;
+            document.getElementById('repayModal').style.display = 'flex';
+        };
+
+        window.closeRepayModal = function() {
+            document.getElementById('repayModal').style.display = 'none';
+            selectedOrder = null;
+        };
+
+        window.proceedToRepay = function() {
+            if (!selectedOrder) return;
+
+            try {
+                // Store repayment data in cookie
+                const repayData = {
+                    orderId: selectedOrder.orderId,
+                    productName: selectedOrder.productName,
+                    amount: selectedOrder.amount,
+                    isRepayment: true
+                };
+
+                const expires = new Date();
+                expires.setTime(expires.getTime() + (1 * 24 * 60 * 60 * 1000));
+                document.cookie = `repaymentItem=${encodeURIComponent(JSON.stringify(repayData))};expires=${expires.toUTCString()};path=/`;
+
+                showNotification('Proceeding to payment...');
+                window.closeRepayModal();
+
+                setTimeout(() => {
+                    window.location.href = 'checkout.html?source=repayment';
+                }, 500);
+            } catch (error) {
+                console.error('Error:', error);
+                showNotification('Failed to proceed to payment', 'error');
+            }
+        };
+
+        // Load orders when user is authenticated
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                loadOrders();
+            }
+        });
+    </script>
+
+    <style>
+        .page-header {
+            text-align: center;
+            padding: 30px 20px;
+            background: linear-gradient(135deg, #ff5722 0%, #ff7043 100%);
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .page-header h1 {
+            margin: 0 0 10px 0;
+            font-size: 28px;
+        }
+
+        .page-header p {
+            margin: 0;
+            opacity: 0.9;
+        }
+
+        .order-tracking-container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 0 20px 40px;
+        }
+
+        .filter-tabs {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 30px;
+            overflow-x: auto;
+            padding: 10px 0;
+        }
+
+        .tab-btn {
+            background: white;
+            border: 2px solid #e0e0e0;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            color: #424242;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+        }
+
+        .tab-btn:hover {
+            border-color: #ff5722;
+            color: #ff5722;
+        }
+
+        .tab-btn.active {
+            background: #ff5722;
+            border-color: #ff5722;
+            color: white;
+        }
+
+        .orders-list {
+            display: grid;
+            gap: 20px;
+        }
+
+        .order-card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .order-card:hover {
+            box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+        }
+
+        .order-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .order-info h3 {
+            margin: 0 0 8px 0;
+            color: #212121;
+            font-size: 16px;
+        }
+
+        .order-date {
+            margin: 0;
+            color: #757575;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .order-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .order-items {
+            padding: 20px;
+        }
+
+        .item {
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+        }
+
+        .item img {
+            width: 80px;
+            height: 80px;
+            border-radius: 8px;
+            object-fit: cover;
+        }
+
+        .item-details {
+            flex: 1;
+        }
+
+        .item-details h4 {
+            margin: 0 0 4px 0;
+            color: #212121;
+            font-size: 16px;
+        }
+
+        .item-details .brand {
+            margin: 0 0 4px 0;
+            color: #757575;
+            font-size: 13px;
+        }
+
+        .item-details .quantity {
+            margin: 0;
+            color: #757575;
+            font-size: 13px;
+        }
+
+        .item-price {
+            text-align: right;
+        }
+
+        .item-price .price {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 700;
+            color: #ff5722;
+        }
+
+        .order-footer {
+            display: flex;
+            gap: 12px;
+            padding: 16px 20px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .btn-repay, .btn-view-details {
+            flex: 1;
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: all 0.3s ease;
+        }
+
+        .btn-repay {
+            background: #f44336;
+            color: white;
+        }
+
+        .btn-repay:hover {
+            background: #da190b;
+        }
+
+        .btn-view-details {
+            background: #ff5722;
+            color: white;
+        }
+
+        .btn-view-details:hover {
+            background: #e64a19;
+        }
+
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            color: #212121;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 28px;
+            cursor: pointer;
+            color: #757575;
+        }
+
+        .modal-body {
+            padding: 20px;
+        }
+
+        .modal-body p {
+            margin: 0 0 16px 0;
+            color: #424242;
+        }
+
+        .repay-amount {
+            font-size: 18px;
+            color: #ff5722;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 12px;
+            padding: 16px 20px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .btn-primary {
+            flex: 1;
+            background: #ff5722;
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-primary:hover {
+            background: #e64a19;
+        }
+
+        .btn-secondary {
+            flex: 1;
+            background: #e0e0e0;
+            color: #424242;
+            border: none;
+            padding: 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .btn-secondary:hover {
+            background: #d0d0d0;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+        }
+
+        .empty-state i {
+            font-size: 64px;
+            color: #ccc;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 600px) {
+            .order-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+            }
+
+            .order-footer {
+                flex-direction: column;
+            }
+        }
+    </style>
+</body>
+</html>

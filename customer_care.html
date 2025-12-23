@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Customer Care - Oda Pap</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+</head>
+<body>
+    <header>
+        <div class="top-bar">
+            <div class="logo-container">
+                <img src="images/logo.jpg" alt="Oda Pap Logo" class="logo">
+                <span class="logo-text">Oda Pap</span>
+            </div>
+            <button onclick="window.history.back()" class="back-button">
+                <i class="fas fa-arrow-left"></i> Back
+            </button>
+        </div>
+    </header>
+
+    <main>
+        <div class="page-header">
+            <h1><i class="fas fa-headset"></i> Customer Care</h1>
+            <p>We're here to help</p>
+        </div>
+
+        <div class="customer-care-container">
+            <!-- Contact Options -->
+            <section class="contact-section">
+                <h2>Get in Touch</h2>
+                <div class="contact-options">
+                    <div class="contact-card">
+                        <i class="fas fa-comments"></i>
+                        <h3>Chat with Support</h3>
+                        <p>Message our support team directly</p>
+                        <button id="chatWithSupportBtn" class="btn-contact">
+                            <i class="fas fa-paper-plane"></i> Start Chat
+                        </button>
+                    </div>
+                    <div class="contact-card">
+                        <i class="fas fa-envelope"></i>
+                        <h3>Email Us</h3>
+                        <p>support@odapap.com</p>
+                        <a href="mailto:support@odapap.com" class="btn-contact">
+                            <i class="fas fa-envelope"></i> Send Email
+                        </a>
+                    </div>
+                    <div class="contact-card">
+                        <i class="fas fa-phone"></i>
+                        <h3>Call Us</h3>
+                        <p>+254 7XX XXX XXX</p>
+                        <a href="tel:+254700000000" class="btn-contact">
+                            <i class="fas fa-phone"></i> Call Now
+                        </a>
+                    </div>
+                </div>
+            </section>
+
+            <!-- FAQs Section -->
+            <section class="faq-section">
+                <h2>Frequently Asked Questions</h2>
+                <div class="faq-list">
+                    <!-- FAQs will be dynamically inserted here -->
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <footer>
+        <p>&copy; 2024 Oda Pap. All Rights Reserved.</p>
+    </footer>
+
+    <script type="module">
+        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+        import { app } from "./js/firebase.js";
+
+        const auth = getAuth(app);
+
+        // FAQs Data
+        const faqs = [
+            {
+                question: "How do I place an order?",
+                answer: "Browse our products, select an item, choose your quantity, and proceed to checkout. You can pay using various payment methods available on our platform."
+            },
+            {
+                question: "What is your return policy?",
+                answer: "We offer returns within 7 days of purchase for items in original condition. Please contact our support team to initiate a return."
+            },
+            {
+                question: "How long does shipping take?",
+                answer: "Standard shipping takes 2-5 business days. Express options may be available in some areas for faster delivery."
+            },
+            {
+                question: "Can I cancel my order?",
+                answer: "Orders can be cancelled within 2 hours of placement. Please contact support immediately if you wish to cancel."
+            },
+            {
+                question: "What payment methods do you accept?",
+                answer: "We accept Mpesa, credit cards, debit cards, and bank transfers. Choose your preferred method at checkout."
+            },
+            {
+                question: "How do I track my order?",
+                answer: "Go to Order Tracking in your account to monitor your delivery status in real-time."
+            },
+            {
+                question: "Are there any delivery charges?",
+                answer: "Delivery charges depend on your location and order value. Free delivery is available for orders above KES 5000 in selected areas."
+            },
+            {
+                question: "What should I do if I receive a damaged item?",
+                answer: "Contact our support team immediately with photos of the damaged item. We'll arrange a replacement or refund."
+            },
+            {
+                question: "Can I modify my order after placing it?",
+                answer: "Orders can be modified within 1 hour of placement. Please reach out to support to make changes."
+            },
+            {
+                question: "How do I become a seller on Oda Pap?",
+                answer: "Visit our Seller Registration page to apply. Complete the verification process and start selling. We support B2B and retail sellers."
+            }
+        ];
+
+        // Display FAQs
+        function displayFAQs() {
+            const faqList = document.querySelector('.faq-list');
+            faqList.innerHTML = '';
+
+            faqs.forEach((faq, index) => {
+                const faqItem = document.createElement('div');
+                faqItem.className = 'faq-item';
+                faqItem.innerHTML = `
+                    <div class="faq-question" onclick="toggleFAQ(${index})">
+                        <h3>${faq.question}</h3>
+                        <i class="fas fa-chevron-down"></i>
+                    </div>
+                    <div class="faq-answer" id="answer-${index}" style="display: none;">
+                        <p>${faq.answer}</p>
+                    </div>
+                `;
+                faqList.appendChild(faqItem);
+            });
+        }
+
+        // Toggle FAQ answer
+        window.toggleFAQ = function(index) {
+            const answer = document.getElementById(`answer-${index}`);
+            const question = event.target.closest('.faq-question');
+            const isOpen = answer.style.display === 'block';
+            
+            // Close all other FAQs
+            document.querySelectorAll('.faq-answer').forEach(a => a.style.display = 'none');
+            document.querySelectorAll('.faq-question i').forEach(i => i.classList.remove('open'));
+            
+            // Open current FAQ
+            if (!isOpen) {
+                answer.style.display = 'block';
+                question.querySelector('i').classList.add('open');
+            }
+        };
+
+        // Chat with support button
+        document.getElementById('chatWithSupportBtn').addEventListener('click', () => {
+            const user = auth.currentUser;
+            if (user) {
+                // Support team ID
+                const supportId = 'nYaKUGTsLTf3d4wYWNezHv2sVbT2';
+                window.location.href = `chat.html?sellerId=${supportId}`;
+            } else {
+                alert('Please log in to chat with support');
+                window.location.href = 'login.html';
+            }
+        });
+
+        // Load FAQs on page load
+        window.addEventListener('load', displayFAQs);
+    </script>
+
+    <style>
+        .page-header {
+            text-align: center;
+            padding: 30px 20px;
+            background: linear-gradient(135deg, #ff5722 0%, #ff7043 100%);
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .page-header h1 {
+            margin: 0 0 10px 0;
+            font-size: 28px;
+        }
+
+        .page-header p {
+            margin: 0;
+            opacity: 0.9;
+        }
+
+        .customer-care-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 0 20px 40px;
+        }
+
+        .contact-section {
+            margin-bottom: 40px;
+        }
+
+        .contact-section h2 {
+            color: #212121;
+            margin-bottom: 24px;
+            font-size: 22px;
+        }
+
+        .contact-options {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .contact-card {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            transition: all 0.3s ease;
+        }
+
+        .contact-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+        }
+
+        .contact-card i {
+            font-size: 48px;
+            color: #ff5722;
+            margin-bottom: 16px;
+            display: block;
+        }
+
+        .contact-card h3 {
+            color: #212121;
+            margin: 0 0 8px 0;
+            font-size: 18px;
+        }
+
+        .contact-card p {
+            color: #757575;
+            margin: 0 0 20px 0;
+            font-size: 14px;
+        }
+
+        .btn-contact {
+            display: inline-block;
+            background: #ff5722;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin: 0 auto;
+        }
+
+        .btn-contact:hover {
+            background: #e64a19;
+            transform: scale(1.05);
+        }
+
+        .faq-section {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+        }
+
+        .faq-section h2 {
+            color: #212121;
+            margin: 0 0 24px 0;
+            font-size: 22px;
+        }
+
+        .faq-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .faq-item {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .faq-question {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px;
+            background: #fafafa;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .faq-question:hover {
+            background: #f5f5f5;
+        }
+
+        .faq-question h3 {
+            margin: 0;
+            color: #212121;
+            font-size: 15px;
+            flex: 1;
+            text-align: left;
+        }
+
+        .faq-question i {
+            color: #ff5722;
+            transition: transform 0.3s ease;
+            margin-left: 12px;
+        }
+
+        .faq-question i.open {
+            transform: rotate(180deg);
+        }
+
+        .faq-answer {
+            padding: 16px;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .faq-answer p {
+            margin: 0;
+            color: #424242;
+            line-height: 1.6;
+        }
+
+        @media (max-width: 600px) {
+            .contact-options {
+                grid-template-columns: 1fr;
+            }
+
+            .faq-section {
+                padding: 20px;
+            }
+        }
+    </style>
+</body>
+</html>

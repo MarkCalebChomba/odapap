@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recently Viewed - Oda Pap</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+</head>
+<body>
+    <header>
+        <div class="top-bar">
+            <div class="logo-container">
+                <img src="images/logo.jpg" alt="Oda Pap Logo" class="logo">
+                <span class="logo-text">Oda Pap</span>
+            </div>
+            <button onclick="window.history.back()" class="back-button">
+                <i class="fas fa-arrow-left"></i> Back
+            </button>
+        </div>
+    </header>
+
+    <main>
+        <div class="page-header">
+            <h1><i class="fas fa-history"></i> Recently Viewed Products</h1>
+            <p>Your browsing history</p>
+        </div>
+
+        <div class="recently-viewed-container">
+            <div class="view-controls">
+                <div class="view-count">
+                    <span id="totalViews">0</span> products viewed
+                </div>
+                <button id="clearHistoryBtn" class="clear-history-btn">
+                    <i class="fas fa-trash"></i> Clear History
+                </button>
+            </div>
+
+            <div id="recentlyViewedList" class="recently-viewed-list">
+                <!-- Recently viewed products will be dynamically inserted here -->
+            </div>
+
+            <div id="emptyState" class="empty-state" style="display: none;">
+                <i class="fas fa-inbox"></i>
+                <h3>No viewed products yet</h3>
+                <p>Products you view will appear here</p>
+                <a href="index.html" class="btn-primary">Start Shopping</a>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <p>&copy; 2024 Oda Pap. All Rights Reserved.</p>
+    </footer>
+
+    <script type="module">
+        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+        import { getFirestore, doc, getDoc, collection } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+        import { app } from "./js/firebase.js";
+        import { showNotification } from './notifications.js';
+
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // Load and display recently viewed products
+        async function loadRecentlyViewed() {
+            const history = JSON.parse(localStorage.getItem('productViewHistory') || '{}');
+            const recentlyViewedList = document.getElementById('recentlyViewedList');
+            const emptyState = document.getElementById('emptyState');
+            const totalViews = document.getElementById('totalViews');
+
+            // Convert to array and sort by most recent (based on lastViewed timestamp)
+            const viewedProducts = Object.entries(history)
+                .map(([id, data]) => ({ id, ...data }))
+                .sort((a, b) => new Date(b.lastViewed) - new Date(a.lastViewed))
+                .slice(0, 50); // Limit to 50 items
+
+            totalViews.textContent = viewedProducts.length;
+
+            if (viewedProducts.length === 0) {
+                emptyState.style.display = 'block';
+                recentlyViewedList.innerHTML = '';
+                return;
+            }
+
+            recentlyViewedList.innerHTML = '';
+            emptyState.style.display = 'none';
+
+            for (const viewData of viewedProducts) {
+                try {
+                    const listingDoc = await getDoc(doc(db, 'Listings', viewData.id));
+                    if (!listingDoc.exists()) continue;
+
+                    const listing = listingDoc.data();
+                    const viewCount = viewData.views || 0;
+                    const timeSpent = Math.round((viewData.totalTime || 0) / 60); // Convert to minutes
+
+                    const card = document.createElement('div');
+                    card.className = 'recently-viewed-card';
+                    card.innerHTML = `
+                        <div class="card-image" onclick="window.location.href='product.html?id=${viewData.id}'">
+                            <img src="${listing.photoTraceUrl || (listing.imageUrls && listing.imageUrls[0]) || 'images/product-placeholder.png'}" 
+                                 alt="${listing.name}">
+                        </div>
+                        <div class="card-content">
+                            <h3>${listing.name}</h3>
+                            <p class="brand">${listing.brand || 'Unknown Brand'}</p>
+                            <p class="price">KES ${listing.price.toLocaleString()}</p>
+                            <div class="view-stats">
+                                <span><i class="fas fa-eye"></i> Viewed ${viewCount} time${viewCount > 1 ? 's' : ''}</span>
+                                <span><i class="fas fa-clock"></i> ${timeSpent} min</span>
+                            </div>
+                        </div>
+                        <div class="card-actions">
+                            <button class="btn-view" onclick="window.location.href='product.html?id=${viewData.id}'">
+                                <i class="fas fa-eye"></i> View
+                            </button>
+                            <button class="btn-remove" onclick="removeFromHistory('${viewData.id}')">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    `;
+                    recentlyViewedList.appendChild(card);
+                } catch (error) {
+                    console.error('Error loading product:', error);
+                }
+            }
+        }
+
+        // Remove single product from history
+        window.removeFromHistory = function(productId) {
+            const history = JSON.parse(localStorage.getItem('productViewHistory') || '{}');
+            delete history[productId];
+            localStorage.setItem('productViewHistory', JSON.stringify(history));
+            loadRecentlyViewed();
+            showNotification('Product removed from history');
+        };
+
+        // Clear entire history with confirmation
+        document.getElementById('clearHistoryBtn').addEventListener('click', () => {
+            if (confirm('Are you sure you want to clear your entire browsing history?')) {
+                localStorage.removeItem('productViewHistory');
+                loadRecentlyViewed();
+                showNotification('History cleared');
+            }
+        });
+
+        // Load on page load
+        window.addEventListener('load', loadRecentlyViewed);
+    </script>
+
+    <style>
+        .page-header {
+            text-align: center;
+            padding: 30px 20px;
+            background: linear-gradient(135deg, #ff5722 0%, #ff7043 100%);
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .page-header h1 {
+            margin: 0 0 10px 0;
+            font-size: 28px;
+        }
+
+        .page-header p {
+            margin: 0;
+            opacity: 0.9;
+        }
+
+        .recently-viewed-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 0 20px 40px;
+        }
+
+        .view-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .view-count {
+            font-size: 16px;
+            color: #424242;
+            font-weight: 600;
+        }
+
+        .clear-history-btn {
+            background: #f44336;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .clear-history-btn:hover {
+            background: #da190b;
+            transform: translateY(-2px);
+        }
+
+        .recently-viewed-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .recently-viewed-card {
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            transition: all 0.3s ease;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .recently-viewed-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+        }
+
+        .card-image {
+            width: 100%;
+            height: 220px;
+            overflow: hidden;
+            background: #f5f5f5;
+            cursor: pointer;
+        }
+
+        .card-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.3s ease;
+        }
+
+        .recently-viewed-card:hover .card-image img {
+            transform: scale(1.05);
+        }
+
+        .card-content {
+            padding: 16px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .card-content h3 {
+            margin: 0 0 8px 0;
+            font-size: 16px;
+            color: #212121;
+            line-height: 1.3;
+        }
+
+        .card-content .brand {
+            margin: 0 0 8px 0;
+            font-size: 13px;
+            color: #757575;
+        }
+
+        .card-content .price {
+            margin: 0 0 12px 0;
+            font-size: 18px;
+            font-weight: 700;
+            color: #ff5722;
+        }
+
+        .view-stats {
+            display: flex;
+            gap: 16px;
+            font-size: 12px;
+            color: #757575;
+        }
+
+        .view-stats span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .view-stats i {
+            color: #ff5722;
+        }
+
+        .card-actions {
+            display: flex;
+            gap: 8px;
+            padding: 12px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .btn-view {
+            flex: 1;
+            background: #ff5722;
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: all 0.3s ease;
+        }
+
+        .btn-view:hover {
+            background: #e64a19;
+        }
+
+        .btn-remove {
+            background: #e0e0e0;
+            color: #424242;
+            border: none;
+            padding: 10px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-remove:hover {
+            background: #d0d0d0;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+        }
+
+        .empty-state i {
+            font-size: 64px;
+            color: #ccc;
+            margin-bottom: 20px;
+        }
+
+        .empty-state h3 {
+            color: #424242;
+            margin: 0 0 8px 0;
+        }
+
+        .empty-state p {
+            color: #757575;
+            margin: 0 0 24px 0;
+        }
+
+        .btn-primary {
+            display: inline-block;
+            background: #ff5722;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 6px;
+            text-decoration: none;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            background: #e64a19;
+            transform: translateY(-2px);
+        }
+
+        @media (max-width: 600px) {
+            .recently-viewed-list {
+                grid-template-columns: 1fr;
+            }
+
+            .view-controls {
+                flex-direction: column;
+                gap: 16px;
+                align-items: flex-start;
+            }
+        }
+    </style>
+</body>
+</html>
