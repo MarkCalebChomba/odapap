@@ -9,6 +9,294 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const storage = getStorage(app);
 
+// ================= RESILIENCE UTILITIES =================
+// Debounce: Delays execution until user stops triggering (for input events)
+function debounce(func, wait = 300) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func.apply(this, args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+// Throttle: Limits execution rate (for scroll/resize events)
+function throttle(func, limit = 100) {
+    let inThrottle;
+    return function executedFunction(...args) {
+        if (!inThrottle) {
+            func.apply(this, args);
+            inThrottle = true;
+            setTimeout(() => inThrottle = false, limit);
+        }
+    };
+}
+
+// Retry with exponential backoff for network operations
+async function withRetry(operation, maxRetries = 3, baseDelay = 1000) {
+    let lastError;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            return await operation();
+        } catch (error) {
+            lastError = error;
+            // Don't retry on auth errors or validation errors
+            if (error.code === 'permission-denied' || error.code === 'unauthenticated' || 
+                error.code === 'invalid-argument' || error.name === 'ValidationError') {
+                throw error;
+            }
+            if (attempt < maxRetries) {
+                const delay = baseDelay * Math.pow(2, attempt - 1) + Math.random() * 1000;
+                console.warn(`Attempt ${attempt} failed, retrying in ${Math.round(delay)}ms...`, error.message);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+    }
+    throw lastError;
+}
+
+// Safe localStorage operations with fallback
+const safeStorage = {
+    get(key, defaultValue = null) {
+        try {
+            const item = localStorage.getItem(key);
+            return item ? JSON.parse(item) : defaultValue;
+        } catch (e) {
+            console.warn('localStorage read error:', e);
+            return defaultValue;
+        }
+    },
+    set(key, value) {
+        try {
+            localStorage.setItem(key, JSON.stringify(value));
+            return true;
+        } catch (e) {
+            console.warn('localStorage write error:', e);
+            // Handle quota exceeded
+            if (e.name === 'QuotaExceededError') {
+                this.cleanup();
+                try {
+                    localStorage.setItem(key, JSON.stringify(value));
+                    return true;
+                } catch (e2) {
+                    return false;
+                }
+            }
+            return false;
+        }
+    },
+    remove(key) {
+        try {
+            localStorage.removeItem(key);
+        } catch (e) {
+            console.warn('localStorage remove error:', e);
+        }
+    },
+    cleanup() {
+        // Remove old/less important items to free space
+        const keysToClean = ['listing_draft_backup', 'old_queue_data'];
+        keysToClean.forEach(key => {
+            try { localStorage.removeItem(key); } catch (e) {}
+        });
+    }
+};
+
+// Input sanitization to prevent XSS and injection
+function sanitizeInput(input) {
+    if (typeof input !== 'string') return input;
+    return input
+        .replace(/[<>]/g, '') // Remove angle brackets
+        .replace(/javascript:/gi, '') // Remove javascript: protocol
+        .replace(/on\w+=/gi, '') // Remove event handlers
+        .trim()
+        .slice(0, 5000); // Limit length
+}
+
+// Validate and sanitize form data
+function sanitizeFormData(data) {
+    const sanitized = {};
+    for (const [key, value] of Object.entries(data)) {
+        if (typeof value === 'string') {
+            sanitized[key] = sanitizeInput(value);
+        } else if (Array.isArray(value)) {
+            sanitized[key] = value.map(item => 
+                typeof item === 'string' ? sanitizeInput(item) : item
+            );
+        } else {
+            sanitized[key] = value;
+        }
+    }
+    return sanitized;
+}
+
+// Network status monitoring
+let isOnline = navigator.onLine;
+let networkListenersAttached = false;
+
+function setupNetworkMonitoring() {
+    if (networkListenersAttached) return;
+    networkListenersAttached = true;
+    
+    window.addEventListener('online', () => {
+        isOnline = true;
+        showNotification('Connection restored! You can continue working.', 'success');
+        // Resume any pending operations
+        if (uploadQueue.length > 0 && !isProcessingQueue) {
+            processQueue();
+        }
+    });
+    
+    window.addEventListener('offline', () => {
+        isOnline = false;
+        showNotification('You are offline. Changes will be saved locally.', 'warning');
+    });
+}
+
+// Check if user is online before network operations
+function requireOnline() {
+    if (!navigator.onLine) {
+        throw new Error('No internet connection. Please check your network and try again.');
+    }
+}
+
+// Mutex/lock for preventing concurrent operations
+const operationLocks = new Map();
+
+async function withLock(lockName, operation) {
+    if (operationLocks.get(lockName)) {
+        console.warn(`Operation "${lockName}" already in progress, skipping.`);
+        return null;
+    }
+    operationLocks.set(lockName, true);
+    try {
+        return await operation();
+    } finally {
+        operationLocks.delete(lockName);
+    }
+}
+
+// Rate limiter for API calls
+const rateLimiter = {
+    calls: new Map(),
+    isAllowed(key, limit = 5, windowMs = 10000) {
+        const now = Date.now();
+        const windowStart = now - windowMs;
+        
+        if (!this.calls.has(key)) {
+            this.calls.set(key, []);
+        }
+        
+        const callTimes = this.calls.get(key).filter(time => time > windowStart);
+        this.calls.set(key, callTimes);
+        
+        if (callTimes.length >= limit) {
+            return false;
+        }
+        
+        callTimes.push(now);
+        return true;
+    },
+    reset(key) {
+        this.calls.delete(key);
+    }
+};
+
+// Global error handler for uncaught promise rejections
+window.addEventListener('unhandledrejection', event => {
+    console.error('Unhandled promise rejection:', event.reason);
+    // Don't show notification for every rejection, only critical ones
+    if (event.reason?.message?.includes('network') || 
+        event.reason?.message?.includes('firebase')) {
+        showNotification('A network error occurred. Please try again.', 'error');
+    }
+});
+
+// ================= DOM HELPERS (reduce repetitive lookups) =================
+const $ = (id) => document.getElementById(id);
+const $$ = (sel) => document.querySelectorAll(sel);
+const $q = (sel) => document.querySelector(sel);
+
+// Cache commonly accessed elements (initialized after DOM ready)
+let DOM = {};
+function cacheDOMElements() {
+    DOM = {
+        category: $('category'),
+        subcategory: $('subcategory'),
+        subsubcategory: $('subsubcategory'),
+        customSubsubcategory: $('custom-subsubcategory'),
+        brandName: $('brand-name'),
+        customBrand: $('custom-brand'),
+        customBrandGroup: $('custom-brand-group'),
+        itemName: $('item-name'),
+        description: $('description'),
+        itemPrice: $('item-price'),
+        initialPrice: $('initial-price'),
+        submitButton: $('submit-button'),
+        variationsContainer: $('variations-container'),
+        bulkTiersContainer: $('bulk-tiers-container'),
+        bulkPricingContainer: $('bulk-pricing-container'),
+        listingsContainer: $('listings-container'),
+        spinner: $('spinner')
+    };
+}
+
+// Helper to get form field values as object
+function getFormValues() {
+    return {
+        category: DOM.category?.value || '',
+        subcategory: DOM.subcategory?.value || '',
+        subsubcategory: DOM.subsubcategory?.value || '',
+        customSubsubcategory: DOM.customSubsubcategory?.value || '',
+        brandName: DOM.brandName?.value || '',
+        customBrand: DOM.customBrand?.value || '',
+        itemName: DOM.itemName?.value || '',
+        description: DOM.description?.value || '',
+        itemPrice: DOM.itemPrice?.value || '',
+        initialPrice: DOM.initialPrice?.value || ''
+    };
+}
+
+// Helper to set form field values from object
+function setFormValues(data) {
+    if (DOM.category && data.category) DOM.category.value = data.category;
+    if (DOM.subcategory && data.subcategory) DOM.subcategory.value = data.subcategory;
+    if (DOM.subsubcategory && data.subsubcategory) DOM.subsubcategory.value = data.subsubcategory;
+    if (DOM.customSubsubcategory) DOM.customSubsubcategory.value = data.customSubsubcategory || '';
+    if (DOM.brandName && data.brandName) DOM.brandName.value = data.brandName;
+    if (DOM.customBrand) DOM.customBrand.value = data.customBrand || '';
+    if (DOM.itemName) DOM.itemName.value = data.itemName || '';
+    if (DOM.description) DOM.description.value = data.description || '';
+    if (DOM.itemPrice) DOM.itemPrice.value = data.itemPrice || '';
+    if (DOM.initialPrice) DOM.initialPrice.value = data.initialPrice || '';
+}
+
+// Helper for validation errors (focus + notification)
+function showValidationError(message, field = null, step = null) {
+    showNotification(message, 'warning');
+    if (step !== null && currentStep !== step) {
+        currentStep = step;
+        showStep(step);
+    }
+    if (field) {
+        setTimeout(() => {
+            if (field.classList?.contains('searchable-select-hidden')) {
+                const wrapper = field.nextElementSibling;
+                if (wrapper?.classList.contains('searchable-dropdown')) {
+                    wrapper.querySelector('.dropdown-trigger')?.click();
+                    wrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    return;
+                }
+            }
+            field.focus?.();
+            field.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+        }, 100);
+    }
+    return false;
+}
+
 // Multi-step wizard state
 let currentStep = 1;
 const totalSteps = 4;
@@ -94,27 +382,17 @@ async function uploadWithTimeout(ref, blob, timeoutMs = UPLOAD_TIMEOUT) {
 
 // ================= QUEUE MANAGEMENT =================
 function initializeQueue() {
-    const stored = localStorage.getItem(QUEUE_STORAGE_KEY);
-    if (stored) {
-        try {
-            uploadQueue = JSON.parse(stored);
-            if (uploadQueue.length > 0) {
-                showQueueUI();
-                processQueue();
-            }
-        } catch (e) {
-            console.error("Error loading queue:", e);
-            localStorage.removeItem(QUEUE_STORAGE_KEY);
-        }
+    const stored = safeStorage.get(QUEUE_STORAGE_KEY, []);
+    if (stored && stored.length > 0) {
+        uploadQueue = stored;
+        showQueueUI();
+        // Delay processing to ensure UI is ready
+        setTimeout(() => processQueue(), 1000);
     }
 }
 
 function saveQueueToStorage() {
-    try {
-        localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(uploadQueue));
-    } catch (e) {
-        console.error("Error saving queue:", e);
-    }
+    safeStorage.set(QUEUE_STORAGE_KEY, uploadQueue);
 }
 
 function addToQueue(listingData) {
@@ -175,6 +453,11 @@ async function processQueue() {
             await uploadListingFromQueue(item);
             removeFromQueue(item.id);
             showNotification(`✓ Listing "${item.data.itemName}" uploaded successfully!`, 'success');
+            
+            // Refresh listings to show the real data from Firestore
+            // This will replace any preview elements with actual data
+            await loadUserListings();
+            
         } catch (error) {
             console.error("Error processing queue item:", error);
             
@@ -329,7 +612,7 @@ async function uploadListingFromQueue(queueItem) {
 
 // ================= QUEUE UI =================
 function showQueueUI() {
-    let queueContainer = document.getElementById('upload-queue-container');
+    let queueContainer = $('upload-queue-container');
     
     if (!queueContainer) {
         queueContainer = document.createElement('div');
@@ -375,18 +658,18 @@ function showQueueUI() {
 }
 
 function hideQueueUI() {
-    const queueContainer = document.getElementById('upload-queue-container');
+    const queueContainer = $('upload-queue-container');
     if (queueContainer) {
         queueContainer.style.display = 'none';
     }
 }
 
 function updateQueueUI() {
-    const queueItems = document.getElementById('queue-items');
+    const queueItems = $('queue-items');
     if (!queueItems) return;
     
     // Update queue count
-    const queueCount = document.getElementById('queue-count');
+    const queueCount = $('queue-count');
     const uploading = uploadQueue.filter(q => q.status === 'uploading').length;
     const pending = uploadQueue.filter(q => q.status === 'pending' || q.status === 'retrying').length;
     if (queueCount) {
@@ -460,8 +743,8 @@ function updateQueueUI() {
 }
 
 window.toggleQueueUI = function() {
-    const queueItems = document.getElementById('queue-items');
-    const icon = document.getElementById('queue-toggle-icon');
+    const queueItems = $('queue-items');
+    const icon = $('queue-toggle-icon');
     
     if (queueItems.style.display === 'none') {
         queueItems.style.display = 'block';
@@ -495,104 +778,89 @@ window.removeQueueItem = function(itemId) {
 // ================= AUTO-SAVE DRAFT =================
 let draftSaveTimeout;
 
+// Debounced draft save to prevent excessive writes
+const debouncedSaveDraft = debounce(() => {
+    saveDraft();
+}, 2000);
+
 function saveDraft() {
     // Collect image previews (compressed dataURLs)
     const imageDataUrls = [];
     for (let i = 1; i <= 5; i++) {
-        const label = document.getElementById(`image-upload-label-${i}`);
+        const label = $(`image-upload-label-${i}`);
         if (label && label.classList.contains('has-image')) {
-            // Get the background-image dataURL
             const bgImage = label.style.backgroundImage;
             if (bgImage && bgImage.startsWith('url(')) {
-                const dataUrl = bgImage.slice(5, -2); // Remove url(" and ")
-                imageDataUrls.push({ index: i, dataUrl: dataUrl });
+                const dataUrl = bgImage.slice(5, -2);
+                imageDataUrls.push({ index: i, dataUrl });
             }
         }
     }
     
     const draftData = {
-        category: document.getElementById('category').value,
-        subcategory: document.getElementById('subcategory').value,
-        subsubcategory: document.getElementById('subsubcategory').value,
-        customSubsubcategory: document.getElementById('custom-subsubcategory').value,
-        itemName: document.getElementById('item-name').value,
-        brandName: document.getElementById('brand-name').value,
-        customBrand: document.getElementById('custom-brand').value,
-        description: document.getElementById('description').value,
-        itemPrice: document.getElementById('item-price').value,
-        initialPrice: document.getElementById('initial-price').value,
+        ...getFormValues(),
         images: imageDataUrls,
-        currentStep: currentStep,
+        currentStep,
         timestamp: Date.now()
     };
     
-    try {
-        localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draftData));
-    } catch (e) {
-        // If storage quota exceeded (likely due to images), save without images
-        console.warn("Error saving draft with images, trying without:", e);
+    // Try to save with images first, fallback to without
+    if (!safeStorage.set(DRAFT_STORAGE_KEY, draftData)) {
+        console.warn("Error saving draft with images, trying without");
         delete draftData.images;
-        try {
-            localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draftData));
-        } catch (e2) {
-            console.error("Error saving draft:", e2);
-        }
+        safeStorage.set(DRAFT_STORAGE_KEY, draftData);
     }
 }
 
 function loadDraft() {
+    const draft = safeStorage.get(DRAFT_STORAGE_KEY);
+    if (!draft) return false;
+    
+    // Only load if draft is less than 7 days old
+    if (Date.now() - draft.timestamp > 7 * 24 * 60 * 60 * 1000) {
+        safeStorage.remove(DRAFT_STORAGE_KEY);
+        return false;
+    }
+    
     try {
-        const stored = localStorage.getItem(DRAFT_STORAGE_KEY);
-        if (!stored) return false;
-        
-        const draft = JSON.parse(stored);
-        
-        // Only load if draft is less than 7 days old
-        if (Date.now() - draft.timestamp > 7 * 24 * 60 * 60 * 1000) {
-            localStorage.removeItem(DRAFT_STORAGE_KEY);
-            return false;
+        // Restore category and trigger cascading dropdowns
+        if (DOM.category) {
+            DOM.category.value = draft.category || '';
+            updateSearchableDropdownDisplay('category');
+            if (draft.category) DOM.category.dispatchEvent(new Event('change'));
         }
         
-        // Auto-restore without asking - silently restore
-        document.getElementById('category').value = draft.category || '';
-        updateSearchableDropdownDisplay('category');
-        
-        // Trigger category change to populate subcategories
-        if (draft.category) {
-            document.getElementById('category').dispatchEvent(new Event('change'));
-        }
-        
-        // Use setTimeout to allow cascading dropdowns to populate
+        // Allow cascading dropdowns to populate
         setTimeout(() => {
-            document.getElementById('subcategory').value = draft.subcategory || '';
-            updateSearchableDropdownDisplay('subcategory');
-            if (draft.subcategory) {
-                document.getElementById('subcategory').dispatchEvent(new Event('change'));
+            if (DOM.subcategory) {
+                DOM.subcategory.value = draft.subcategory || '';
+                updateSearchableDropdownDisplay('subcategory');
+                if (draft.subcategory) DOM.subcategory.dispatchEvent(new Event('change'));
             }
             
             setTimeout(() => {
-                document.getElementById('subsubcategory').value = draft.subsubcategory || '';
+                if (DOM.subsubcategory) DOM.subsubcategory.value = draft.subsubcategory || '';
                 updateSearchableDropdownDisplay('subsubcategory');
-                document.getElementById('custom-subsubcategory').value = draft.customSubsubcategory || '';
-                document.getElementById('brand-name').value = draft.brandName || '';
+                if (DOM.customSubsubcategory) DOM.customSubsubcategory.value = draft.customSubsubcategory || '';
+                if (DOM.brandName) DOM.brandName.value = draft.brandName || '';
                 updateSearchableDropdownDisplay('brand-name');
-                document.getElementById('custom-brand').value = draft.customBrand || '';
+                if (DOM.customBrand) DOM.customBrand.value = draft.customBrand || '';
             }, 200);
         }, 200);
         
-        document.getElementById('item-name').value = draft.itemName || '';
-        document.getElementById('description').value = draft.description || '';
-        document.getElementById('item-price').value = draft.itemPrice || '';
-        document.getElementById('initial-price').value = draft.initialPrice || '';
+        // Restore text fields
+        if (DOM.itemName) DOM.itemName.value = draft.itemName || '';
+        if (DOM.description) DOM.description.value = draft.description || '';
+        if (DOM.itemPrice) DOM.itemPrice.value = draft.itemPrice || '';
+        if (DOM.initialPrice) DOM.initialPrice.value = draft.initialPrice || '';
         
-        // Restore saved images (preview only - user will need to re-upload for actual file)
-        if (draft.images && draft.images.length > 0) {
+        // Restore saved images (preview only)
+        if (draft.images?.length > 0) {
             draft.images.forEach(img => {
-                const label = document.getElementById(`image-upload-label-${img.index}`);
+                const label = $(`image-upload-label-${img.index}`);
                 if (label && img.dataUrl) {
                     label.style.backgroundImage = `url(${img.dataUrl})`;
-                    label.classList.add('has-image');
-                    label.classList.add('restored-preview'); // Mark as restored
+                    label.classList.add('has-image', 'restored-preview');
                     const icon = label.querySelector('i');
                     const uploadText = label.querySelector('.upload-text');
                     if (icon) icon.style.display = 'none';
@@ -602,7 +870,7 @@ function loadDraft() {
         }
         
         // Restore current step if saved
-        if (draft.currentStep && draft.currentStep > 1) {
+        if (draft.currentStep > 1) {
             currentStep = draft.currentStep;
             showStep(currentStep);
             showNotification('📝 Your progress has been restored', 'success');
@@ -611,7 +879,7 @@ function loadDraft() {
         return true;
     } catch (e) {
         console.error("Error loading draft:", e);
-        localStorage.removeItem(DRAFT_STORAGE_KEY);
+        safeStorage.remove(DRAFT_STORAGE_KEY);
     }
     
     return false;
@@ -619,30 +887,27 @@ function loadDraft() {
 
 // Update searchable dropdown display to match select value
 function updateSearchableDropdownDisplay(selectId) {
-    const select = document.getElementById(selectId);
-    const wrapper = document.getElementById(`${selectId}-searchable`);
+    const select = $(selectId);
+    const wrapper = $(`${selectId}-searchable`);
     if (!select || !wrapper) return;
     
     const trigger = wrapper.querySelector('.dropdown-trigger');
     const selectedOption = select.options[select.selectedIndex];
     
-    if (selectedOption && selectedOption.value) {
+    if (selectedOption?.value) {
         trigger.querySelector('.selected-text').textContent = selectedOption.textContent.replace(' ★', '');
         trigger.querySelector('.selected-text').classList.remove('placeholder');
-        
-        // Update selected state in dropdown
-        const options = wrapper.querySelectorAll('.dropdown-option');
-        options.forEach(opt => {
+        wrapper.querySelectorAll('.dropdown-option').forEach(opt => {
             opt.classList.toggle('selected', opt.dataset.value === selectedOption.value);
         });
     }
 }
 
 function clearDraft() {
-    localStorage.removeItem(DRAFT_STORAGE_KEY);
+    safeStorage.remove(DRAFT_STORAGE_KEY);
 }
 
-// Auto-save on input changes
+// Auto-save on input changes (debounced)
 function setupAutoSave() {
     const fields = [
         'category', 'subcategory', 'subsubcategory', 'custom-subsubcategory',
@@ -651,7 +916,7 @@ function setupAutoSave() {
     ];
     
     fields.forEach(fieldId => {
-        const field = document.getElementById(fieldId);
+        const field = $(fieldId);
         if (field) {
             field.addEventListener('input', () => {
                 clearTimeout(draftSaveTimeout);
@@ -663,7 +928,7 @@ function setupAutoSave() {
 
 // ================= INITIALIZE CATEGORIES =================
 function initializeCategoryDropdown() {
-    const categorySelect = document.getElementById('category');
+    const categorySelect = $('category');
     categorySelect.innerHTML = '<option value="">Select a category</option>';
     
     Object.keys(categoryHierarchy).forEach(key => {
@@ -679,7 +944,7 @@ function initializeCategoryDropdown() {
 
 // ================= SEARCHABLE DROPDOWN =================
 function convertToSearchableDropdown(selectId) {
-    const select = document.getElementById(selectId);
+    const select = $(selectId);
     if (!select) return;
     
     // Create wrapper
@@ -721,7 +986,7 @@ function convertToSearchableDropdown(selectId) {
         const isOpen = menu.classList.contains('show');
         
         // Close all other dropdowns
-        document.querySelectorAll('.dropdown-menu.show').forEach(m => {
+        $$('.dropdown-menu.show').forEach(m => {
             m.classList.remove('show');
             m.closest('.searchable-dropdown').querySelector('.dropdown-trigger').classList.remove('active');
         });
@@ -733,9 +998,9 @@ function convertToSearchableDropdown(selectId) {
         }
     });
     
-    // Event: Search
-    menu.querySelector('input').addEventListener('input', (e) => {
-        const query = e.target.value.toLowerCase();
+    // Event: Search (debounced for better performance)
+    const searchInput = menu.querySelector('input');
+    const handleSearch = debounce((query) => {
         const options = menu.querySelectorAll('.dropdown-option');
         let hasVisible = false;
         
@@ -759,6 +1024,10 @@ function convertToSearchableDropdown(selectId) {
         } else if (noResults) {
             noResults.style.display = 'none';
         }
+    }, 150);
+    
+    searchInput.addEventListener('input', (e) => {
+        handleSearch(e.target.value.toLowerCase());
     });
     
     // Event: Select option
@@ -850,8 +1119,8 @@ function buildDropdownOptions(select, container) {
 
 // Update searchable dropdown when select options change
 function refreshSearchableDropdown(selectId) {
-    const select = document.getElementById(selectId);
-    const wrapper = document.getElementById(`${selectId}-searchable`);
+    const select = $(selectId);
+    const wrapper = $(`${selectId}-searchable`);
     if (!select || !wrapper) return;
     
     const container = wrapper.querySelector('.dropdown-options');
@@ -871,7 +1140,7 @@ function refreshSearchableDropdown(selectId) {
 
 // ================= STEP NAVIGATION =================
 function updateProgressBar() {
-    document.querySelectorAll('.progress-step').forEach((step, index) => {
+    $$('.progress-step').forEach((step, index) => {
         const stepNum = index + 1;
         step.classList.remove('active', 'completed');
         
@@ -884,12 +1153,12 @@ function updateProgressBar() {
 }
 
 function showStep(step) {
-    document.querySelectorAll('.form-step').forEach(s => s.classList.remove('active'));
-    document.querySelector(`.form-step[data-step="${step}"]`).classList.add('active');
+    $$('.form-step').forEach(s => s.classList.remove('active'));
+    $q(`.form-step[data-step="${step}"]`)?.classList.add('active');
     
-    document.getElementById('prev-btn').style.display = step === 1 ? 'none' : 'flex';
-    document.getElementById('next-btn').style.display = step === totalSteps ? 'none' : 'flex';
-    document.getElementById('submit-button').style.display = step === totalSteps ? 'flex' : 'none';
+    $('prev-btn').style.display = step === 1 ? 'none' : 'flex';
+    $('next-btn').style.display = step === totalSteps ? 'none' : 'flex';
+    $('submit-button').style.display = step === totalSteps ? 'flex' : 'none';
     
     if (step === 4) {
         updateReviewSummary();
@@ -901,14 +1170,58 @@ function showStep(step) {
 }
 
 function validateStep(step) {
-    const stepElement = document.querySelector(`.form-step[data-step="${step}"]`);
+    const stepElement = $q(`.form-step[data-step="${step}"]`);
     const requiredFields = stepElement.querySelectorAll('[required]');
+    
+    // Field name mapping for user-friendly messages
+    const fieldNames = {
+        'category': 'Main Category',
+        'subcategory': 'Sub-Category',
+        'subsubcategory': 'Specific Type',
+        'brand-name': 'Brand Name',
+        'custom-brand': 'Custom Brand Name',
+        'custom-subsubcategory': 'Custom Type',
+        'item-name': 'Product Name',
+        'description': 'Product Description',
+        'item-price': 'Base Price',
+        'initial-price': 'Original Retail Price'
+    };
+    
+    const stepNames = {
+        1: 'Classification & Brand',
+        2: 'Product Details',
+        3: 'Inventory & Variations',
+        4: 'Pricing & Review'
+    };
     
     for (let field of requiredFields) {
         if (!field.value || (field.tagName === 'SELECT' && field.value === '')) {
-            showNotification(`Please fill in all required fields in Step ${step}`);
-            field.focus();
-            return false;
+            const fieldName = fieldNames[field.id] || field.placeholder || 'Required field';
+            return showValidationError(`Please fill in "${fieldName}" in ${stepNames[step]}`, field, step);
+        }
+    }
+    
+    // Step 1 specific validation for fields without HTML required attribute
+    if (step === 1) {
+        const subsubcategoryGroup = $('subsubcategory-group');
+        
+        if (subsubcategoryGroup?.style.display !== 'none') {
+            if (DOM.subsubcategory?.value === 'Other' || DOM.subsubcategory?.value === 'other') {
+                if (!DOM.customSubsubcategory?.value.trim()) {
+                    return showValidationError(`Please fill in "Custom Type" in ${stepNames[1]}`, DOM.customSubsubcategory, 1);
+                }
+            } else if (!DOM.subsubcategory?.value) {
+                return showValidationError(`Please fill in "Specific Type" in ${stepNames[1]}`, DOM.subsubcategory, 1);
+            }
+        }
+        
+        // Check brand-name
+        if (DOM.brandName?.value === 'Other' || DOM.brandName?.value === 'other') {
+            if (DOM.customBrandGroup?.style.display !== 'none' && !DOM.customBrand?.value.trim()) {
+                return showValidationError(`Please fill in "New Brand Name" in ${stepNames[1]}`, DOM.customBrand, 1);
+            }
+        } else if (!DOM.brandName?.value) {
+            return showValidationError(`Please fill in "Brand Name" in ${stepNames[1]}`, DOM.brandName, 1);
         }
     }
     
@@ -917,8 +1230,8 @@ function validateStep(step) {
         let hasImage = false;
         let hasRestoredPreview = false;
         for (let i = 1; i <= 5; i++) {
-            const imageInput = document.getElementById(`media-upload-${i}`);
-            const label = document.getElementById(`image-upload-label-${i}`);
+            const imageInput = $(`media-upload-${i}`);
+            const label = $(`image-upload-label-${i}`);
             if (imageInput && imageInput.files[0]) {
                 hasImage = true;
                 break;
@@ -939,7 +1252,7 @@ function validateStep(step) {
     }
     
     if (step === 3) {
-        const variationRows = document.querySelectorAll('.variation-row');
+        const variationRows = $$('.variation-row');
         if (variationRows.length === 0) {
             showNotification('Please add at least one product variation');
             return false;
@@ -1003,28 +1316,28 @@ function validateStep(step) {
     return true;
 }
 
-document.getElementById('next-btn').addEventListener('click', () => {
+$('next-btn').addEventListener('click', () => {
     if (validateStep(currentStep)) {
         currentStep++;
         showStep(currentStep);
     }
 });
 
-document.getElementById('prev-btn').addEventListener('click', () => {
+$('prev-btn').addEventListener('click', () => {
     currentStep--;
     showStep(currentStep);
 });
 
 // ================= CATEGORY HIERARCHY =================
-document.getElementById('category').addEventListener('change', function() {
+$('category').addEventListener('change', function() {
     const category = this.value;
-    const subcategoryGroup = document.getElementById('subcategory-group');
-    const subcategorySelect = document.getElementById('subcategory');
-    const subsubcategoryGroup = document.getElementById('subsubcategory-group');
+    const subcategoryGroup = $('subcategory-group');
+    const subcategorySelect = $('subcategory');
+    const subsubcategoryGroup = $('subsubcategory-group');
     
     subcategorySelect.innerHTML = '<option value="">Select sub-category</option>';
     subsubcategoryGroup.style.display = 'none';
-    document.getElementById('custom-subsubcategory-group').style.display = 'none';
+    $('custom-subsubcategory-group').style.display = 'none';
     
     if (category && categoryHierarchy[category]) {
         subcategoryGroup.style.display = 'block';
@@ -1048,33 +1361,27 @@ document.getElementById('category').addEventListener('change', function() {
     }
 });
 
-document.getElementById('subcategory').addEventListener('change', async function() {
-    const category = document.getElementById('category').value;
+$('subcategory').addEventListener('change', async function() {
+    const category = DOM.category?.value;
     const subcategory = this.value;
-    const subsubcategoryGroup = document.getElementById('subsubcategory-group');
-    const subsubcategorySelect = document.getElementById('subsubcategory');
+    const subsubcategoryGroup = $('subsubcategory-group');
+    const subsubcategorySelect = $('subsubcategory');
     
     subsubcategorySelect.innerHTML = '<option value="">Select specific type</option>';
-    document.getElementById('custom-subsubcategory-group').style.display = 'none';
+    $('custom-subsubcategory-group').style.display = 'none';
     
     if (subcategory && categoryHierarchy[category]?.subcategories[subcategory]) {
         subsubcategoryGroup.style.display = 'block';
         subsubcategorySelect.disabled = false;
         
-        // Get default types from categoryData
         const defaultTypes = categoryHierarchy[category].subcategories[subcategory].types;
-        
-        // Load custom types from Firestore
         const customTypes = await loadCustomCategories(category, subcategory);
-        
-        // Combine and deduplicate
         const allTypes = [...new Set([...defaultTypes, ...customTypes])];
         
         allTypes.forEach(type => {
             const option = document.createElement('option');
             option.value = type.toLowerCase().replace(/\s+/g, '-');
             option.textContent = type;
-            // Mark custom types
             if (customTypes.includes(type) && !defaultTypes.includes(type)) {
                 option.textContent = `${type} ★`;
                 option.dataset.custom = 'true';
@@ -1082,7 +1389,6 @@ document.getElementById('subcategory').addEventListener('change', async function
             subsubcategorySelect.appendChild(option);
         });
         
-        // Refresh searchable dropdown
         refreshSearchableDropdown('subsubcategory');
     } else {
         subsubcategoryGroup.style.display = 'none';
@@ -1090,29 +1396,39 @@ document.getElementById('subcategory').addEventListener('change', async function
     }
 });
 
-document.getElementById('subsubcategory').addEventListener('change', function() {
-    const customGroup = document.getElementById('custom-subsubcategory-group');
+$('subsubcategory').addEventListener('change', function() {
+    const customGroup = $('custom-subsubcategory-group');
     
     if (this.value === 'custom') {
         customGroup.style.display = 'block';
-        document.getElementById('custom-subsubcategory').required = true;
+        $('custom-subsubcategory').required = true;
     } else {
         customGroup.style.display = 'none';
-        document.getElementById('custom-subsubcategory').required = false;
+        $('custom-subsubcategory').required = false;
     }
 });
 
 async function updateBrandDropdown(category) {
-    const brandSelect = document.getElementById('brand-name');
+    const brandSelect = DOM.brandName;
+    if (!brandSelect) return;
+    
     brandSelect.innerHTML = '<option value="">Select brand</option>';
     
-    // Get default brands
-    const defaultBrands = brandsByCategory[category] || ["Generic", "Custom/Other"];
+    // Add "Add New Brand" option at the TOP
+    const addNewOption = document.createElement('option');
+    addNewOption.value = 'Custom/Other';
+    addNewOption.textContent = '+ Add New Brand';
+    addNewOption.style.fontWeight = 'bold';
+    addNewOption.className = 'add-new-brand-option';
+    brandSelect.appendChild(addNewOption);
     
-    // Load custom brands from Firestore
+    // Get default brands
+    const defaultBrands = brandsByCategory[category] || ["Generic"];
+    
+    // Load custom brands from Firestore (category-specific)
     const customBrands = await loadCustomBrands(category);
     
-    // Combine brands, ensuring Custom/Other is always last
+    // Combine brands, excluding Custom/Other from defaults
     const regularBrands = defaultBrands.filter(b => b !== "Custom/Other");
     const allBrands = [...new Set([...regularBrands, ...customBrands])];
     allBrands.sort((a, b) => a.localeCompare(b));
@@ -1121,7 +1437,7 @@ async function updateBrandDropdown(category) {
         const option = document.createElement('option');
         option.value = brand;
         option.textContent = brand;
-        // Mark custom brands
+        // Mark custom brands with a star
         if (customBrands.includes(brand) && !defaultBrands.includes(brand)) {
             option.textContent = `${brand} ★`;
             option.dataset.custom = 'true';
@@ -1129,37 +1445,152 @@ async function updateBrandDropdown(category) {
         brandSelect.appendChild(option);
     });
     
-    // Always add Custom/Other at the end
-    const customOption = document.createElement('option');
-    customOption.value = 'Custom/Other';
-    customOption.textContent = '+ Add New Brand';
-    customOption.style.fontWeight = 'bold';
-    brandSelect.appendChild(customOption);
-    
     // Refresh searchable dropdown
     refreshSearchableDropdown('brand-name');
+    
+    // Store brands for suggestion feature
+    window.currentCategoryBrands = allBrands;
 }
 
-document.getElementById('brand-name').addEventListener('change', function() {
-    const customBrandGroup = document.getElementById('custom-brand-group');
+$('brand-name').addEventListener('change', function() {
+    const customBrandGroup = DOM.customBrandGroup;
     
     if (this.value === 'Custom/Other') {
-        customBrandGroup.style.display = 'block';
-        document.getElementById('custom-brand').required = true;
+        if (customBrandGroup) customBrandGroup.style.display = 'block';
+        if (DOM.customBrand) DOM.customBrand.required = true;
+        setupBrandSuggestions();
     } else {
-        customBrandGroup.style.display = 'none';
-        document.getElementById('custom-brand').required = false;
+        if (customBrandGroup) customBrandGroup.style.display = 'none';
+        if (DOM.customBrand) DOM.customBrand.required = false;
+        hideBrandSuggestions();
     }
 });
 
+// Brand suggestion system for custom brands
+function setupBrandSuggestions() {
+    const customBrandInput = DOM.customBrand;
+    if (!customBrandInput) return;
+    
+    let suggestionsContainer = $('brand-suggestions');
+    if (!suggestionsContainer) {
+        suggestionsContainer = document.createElement('div');
+        suggestionsContainer.id = 'brand-suggestions';
+        suggestionsContainer.className = 'brand-suggestions-container';
+        customBrandInput.parentNode.appendChild(suggestionsContainer);
+    }
+    
+    customBrandInput.addEventListener('input', handleBrandInput);
+    customBrandInput.addEventListener('blur', () => {
+        setTimeout(hideBrandSuggestions, 200);
+    });
+}
+
+function handleBrandInput(e) {
+    const input = e.target.value.trim().toLowerCase();
+    const suggestionsContainer = $('brand-suggestions');
+    
+    if (!suggestionsContainer || input.length < 2) {
+        hideBrandSuggestions();
+        return;
+    }
+    
+    const allBrands = window.currentCategoryBrands || [];
+    const matchingBrands = allBrands.filter(brand => 
+        brand.toLowerCase().includes(input)
+    );
+    
+    // Check for exact match (brand already exists)
+    const exactMatch = allBrands.some(brand => 
+        brand.toLowerCase() === input
+    );
+    
+    if (matchingBrands.length === 0 && !exactMatch) {
+        suggestionsContainer.innerHTML = `
+            <div class="brand-suggestion-info">
+                <i class="fas fa-check-circle" style="color: #4CAF50;"></i>
+                "${e.target.value}" is available as a new brand
+            </div>
+        `;
+        suggestionsContainer.style.display = 'block';
+        return;
+    }
+    
+    if (exactMatch) {
+        suggestionsContainer.innerHTML = `
+            <div class="brand-suggestion-warning">
+                <i class="fas fa-exclamation-triangle" style="color: #ff9800;"></i>
+                This brand already exists! Select it from the dropdown instead.
+            </div>
+        `;
+        suggestionsContainer.style.display = 'block';
+        return;
+    }
+    
+    if (matchingBrands.length > 0) {
+        suggestionsContainer.innerHTML = `
+            <div class="brand-suggestion-header">
+                <i class="fas fa-info-circle"></i> Similar brands exist:
+            </div>
+            ${matchingBrands.slice(0, 5).map(brand => `
+                <div class="brand-suggestion-item" onclick="selectExistingBrand('${brand}')">
+                    <i class="fas fa-tag"></i> ${brand}
+                </div>
+            `).join('')}
+            <div class="brand-suggestion-note">
+                Click a brand to select it, or continue typing to add a new one
+            </div>
+        `;
+        suggestionsContainer.style.display = 'block';
+    }
+}
+
+function hideBrandSuggestions() {
+    const container = $('brand-suggestions');
+    if (container) container.style.display = 'none';
+}
+
+window.selectExistingBrand = function(brand) {
+    // Set the brand dropdown to the existing brand
+    if (DOM.brandName) {
+        DOM.brandName.value = brand;
+        DOM.brandName.dispatchEvent(new Event('change'));
+    }
+    
+    updateSearchableDropdownDisplay('brand-name');
+    
+    // Hide the custom brand group
+    if (DOM.customBrandGroup) DOM.customBrandGroup.style.display = 'none';
+    if (DOM.customBrand) {
+        DOM.customBrand.value = '';
+        DOM.customBrand.required = false;
+    }
+    
+    hideBrandSuggestions();
+    showNotification(`Selected existing brand: ${brand}`, 'success');
+};
+
+// ================= METADATA CACHE =================
+const metadataCache = {
+    categories: {},
+    brands: {},
+    cacheExpiry: 5 * 60 * 1000 // 5 minutes cache
+};
+
 async function saveCustomCategory(category, subcategory, customType) {
     try {
-        const metadataRef = doc(db, "CategoryMetadata", `${category}_${subcategory}`);
-        const metadataDoc = await getDoc(metadataRef);
+        const cacheKey = `${category}_${subcategory}`;
+        const metadataRef = doc(db, "CategoryMetadata", cacheKey);
         
+        // Use cache if available and not expired
         let types = [];
-        if (metadataDoc.exists()) {
-            types = metadataDoc.data().types || [];
+        const cached = metadataCache.categories[cacheKey];
+        if (cached && Date.now() - cached.timestamp < metadataCache.cacheExpiry) {
+            types = [...cached.types];
+        } else {
+            const metadataDoc = await getDoc(metadataRef);
+            if (metadataDoc.exists()) {
+                types = metadataDoc.data().types || [];
+            }
         }
         
         const normalizedType = customType.trim();
@@ -1171,6 +1602,9 @@ async function saveCustomCategory(category, subcategory, customType) {
                 subcategory,
                 updatedAt: new Date().toISOString()
             }, { merge: true });
+            
+            // Update cache
+            metadataCache.categories[cacheKey] = { types, timestamp: Date.now() };
             console.log(`Saved custom type: ${normalizedType}`);
         }
     } catch (error) {
@@ -1178,15 +1612,21 @@ async function saveCustomCategory(category, subcategory, customType) {
     }
 }
 
-// Save custom brand to Firestore
+// Save custom brand to Firestore with caching
 async function saveCustomBrand(category, brandName) {
     try {
         const brandsRef = doc(db, "BrandMetadata", category);
-        const brandsDoc = await getDoc(brandsRef);
         
+        // Use cache if available
         let brands = [];
-        if (brandsDoc.exists()) {
-            brands = brandsDoc.data().brands || [];
+        const cached = metadataCache.brands[category];
+        if (cached && Date.now() - cached.timestamp < metadataCache.cacheExpiry) {
+            brands = [...cached.brands];
+        } else {
+            const brandsDoc = await getDoc(brandsRef);
+            if (brandsDoc.exists()) {
+                brands = brandsDoc.data().brands || [];
+            }
         }
         
         const normalizedBrand = brandName.trim();
@@ -1197,6 +1637,9 @@ async function saveCustomBrand(category, brandName) {
                 category,
                 updatedAt: new Date().toISOString()
             }, { merge: true });
+            
+            // Update cache
+            metadataCache.brands[category] = { brands, timestamp: Date.now() };
             console.log(`Saved custom brand: ${normalizedBrand}`);
         }
     } catch (error) {
@@ -1204,14 +1647,25 @@ async function saveCustomBrand(category, brandName) {
     }
 }
 
-// Load custom categories from Firestore
+// Load custom categories from Firestore with caching
 async function loadCustomCategories(category, subcategory) {
+    const cacheKey = `${category}_${subcategory}`;
+    
+    // Check cache first
+    const cached = metadataCache.categories[cacheKey];
+    if (cached && Date.now() - cached.timestamp < metadataCache.cacheExpiry) {
+        return cached.types;
+    }
+    
     try {
-        const metadataRef = doc(db, "CategoryMetadata", `${category}_${subcategory}`);
+        const metadataRef = doc(db, "CategoryMetadata", cacheKey);
         const metadataDoc = await getDoc(metadataRef);
         
         if (metadataDoc.exists()) {
-            return metadataDoc.data().types || [];
+            const types = metadataDoc.data().types || [];
+            // Store in cache
+            metadataCache.categories[cacheKey] = { types, timestamp: Date.now() };
+            return types;
         }
     } catch (error) {
         console.error("Error loading custom categories:", error);
@@ -1219,14 +1673,23 @@ async function loadCustomCategories(category, subcategory) {
     return [];
 }
 
-// Load custom brands from Firestore
+// Load custom brands from Firestore with caching
 async function loadCustomBrands(category) {
+    // Check cache first
+    const cached = metadataCache.brands[category];
+    if (cached && Date.now() - cached.timestamp < metadataCache.cacheExpiry) {
+        return cached.brands;
+    }
+    
     try {
         const brandsRef = doc(db, "BrandMetadata", category);
         const brandsDoc = await getDoc(brandsRef);
         
         if (brandsDoc.exists()) {
-            return brandsDoc.data().brands || [];
+            const brands = brandsDoc.data().brands || [];
+            // Store in cache
+            metadataCache.brands[category] = { brands, timestamp: Date.now() };
+            return brands;
         }
     } catch (error) {
         console.error("Error loading custom brands:", error);
@@ -1236,15 +1699,15 @@ async function loadCustomBrands(category) {
 
 // ================= PRODUCT IMAGES =================
 for (let i = 1; i <= 5; i++) {
-    document.getElementById(`media-upload-${i}`).addEventListener('change', function(event) {
+    $(`media-upload-${i}`).addEventListener('change', function(event) {
         const file = event.target.files[0];
         if (file) {
             const reader = new FileReader();
             reader.onload = function(e) {
-                const label = document.getElementById(`image-upload-label-${i}`);
+                const label = $(`image-upload-label-${i}`);
                 label.style.backgroundImage = `url(${e.target.result})`;
                 label.classList.add('has-image');
-                label.classList.remove('restored-preview'); // Clear restored flag when actual file selected
+                label.classList.remove('restored-preview');
                 const icon = label.querySelector('i');
                 const uploadText = label.querySelector('.upload-text');
                 if (icon) icon.style.display = 'none';
@@ -1260,8 +1723,8 @@ window.removeImage = function(index, event) {
         event.preventDefault();
         event.stopPropagation();
     }
-    document.getElementById(`media-upload-${index}`).value = '';
-    const label = document.getElementById(`image-upload-label-${index}`);
+    $(`media-upload-${index}`).value = '';
+    const label = $(`image-upload-label-${index}`);
     label.style.backgroundImage = '';
     label.classList.remove('has-image');
     const icon = label.querySelector('i');
@@ -1296,13 +1759,13 @@ const variationTypesByCategory = {
 };
 
 function getSuggestedVariationTypes() {
-    const category = document.getElementById('category').value;
+    const category = $('category').value;
     return variationTypesByCategory[category] || variationTypesByCategory.default;
 }
 
 // ================= VARIATION MATRIX WITH ATTRIBUTES =================
 function createVariationRow() {
-    if (document.querySelectorAll('.variation-row').length >= MAX_VARIATIONS) {
+    if ($$('.variation-row').length >= MAX_VARIATIONS) {
         showNotification(`Maximum ${MAX_VARIATIONS} variations allowed`, 'warning');
         return;
     }
@@ -1370,7 +1833,7 @@ function createVariationRow() {
         </div>
     `;
     
-    document.getElementById('variations-container').appendChild(variationRow);
+    $('variations-container').appendChild(variationRow);
     
     addAttribute(variationCounter);
     
@@ -1382,7 +1845,7 @@ function createVariationRow() {
 }
 
 window.handleVariationTypeChange = function(select, variationId) {
-    const row = document.querySelector(`.variation-row[data-variation-id="${variationId}"]`);
+    const row = $q(`.variation-row[data-variation-id="${variationId}"]`);
     const customInput = row.querySelector('.variation-title-input');
     const quickAddSection = row.querySelector('.quick-add-section');
     const quickAddChips = row.querySelector('.quick-add-chips');
@@ -1414,17 +1877,17 @@ window.handleVariationTypeChange = function(select, variationId) {
 };
 
 window.clearQuickAdd = function(variationId) {
-    const quickAddSection = document.querySelector(`.quick-add-section[data-variation-id="${variationId}"]`);
+    const quickAddSection = $q(`.quick-add-section[data-variation-id="${variationId}"]`);
     if (quickAddSection) {
         quickAddSection.style.display = 'none';
     }
 };
 
 window.quickAddAttribute = function(variationId, value, event) {
-    const attributesList = document.querySelector(`.attributes-list[data-variation-id="${variationId}"]`);
+    const attributesList = $q(`.attributes-list[data-variation-id="${variationId}"]`);
     if (!attributesList) return;
     
-    const chip = event?.target?.closest('.suggestion-chip') || document.querySelector(`.suggestion-chip[data-value="${value}"]`);
+    const chip = event?.target?.closest('.suggestion-chip') || $q(`.suggestion-chip[data-value="${value}"]`);
     
     // Check if this value already exists - if so, REMOVE it (toggle behavior)
     const existingAttr = Array.from(attributesList.querySelectorAll('.attribute-item')).find(item => {
@@ -1435,12 +1898,13 @@ window.quickAddAttribute = function(variationId, value, event) {
     if (existingAttr) {
         // Remove existing attribute
         existingAttr.remove();
-        // Renumber remaining attributes
+        // Renumber remaining attributes starting from 1
         const remaining = attributesList.querySelectorAll('.attribute-item');
         remaining.forEach((item, index) => {
-            item.dataset.attributeIndex = index + 1;
+            const newIndex = index + 1;
+            item.dataset.attributeIndex = newIndex;
             const badge = item.querySelector('.attribute-badge');
-            if (badge) badge.textContent = `#${index + 1}`;
+            if (badge) badge.textContent = `Option ${newIndex}`;
         });
         updateAttributeCount(variationId);
         updateVariationCalculations();
@@ -1474,8 +1938,8 @@ window.quickAddAttribute = function(variationId, value, event) {
 };
 
 function updateAttributeCount(variationId) {
-    const attributesList = document.querySelector(`.attributes-list[data-variation-id="${variationId}"]`);
-    const countSpan = document.querySelector(`.variation-row[data-variation-id="${variationId}"] .attribute-count`);
+    const attributesList = $q(`.attributes-list[data-variation-id="${variationId}"]`);
+    const countSpan = $q(`.variation-row[data-variation-id="${variationId}"] .attribute-count`);
     if (attributesList && countSpan) {
         const count = attributesList.querySelectorAll('.attribute-item').length;
         countSpan.textContent = `(${count}/${MAX_ATTRIBUTES_PER_VARIATION})`;
@@ -1483,7 +1947,7 @@ function updateAttributeCount(variationId) {
 }
 
 function addAttribute(variationId, prefilledName = '') {
-    const attributesList = document.querySelector(`.attributes-list[data-variation-id="${variationId}"]`);
+    const attributesList = $q(`.attributes-list[data-variation-id="${variationId}"]`);
     
     if (!attributesList) {
         console.error(`Attributes list not found for variation ${variationId}`);
@@ -1507,7 +1971,7 @@ function addAttribute(variationId, prefilledName = '') {
     
     attributeDiv.innerHTML = `
         <div class="attribute-header-row">
-            <div class="attribute-badge">#${attributeIndex}</div>
+            <div class="attribute-badge">Option ${attributeIndex}</div>
             <input type="text" class="attribute-name" placeholder="Option name (e.g., Small, Red)" value="${prefilledName}" required>
             <button type="button" class="remove-attribute-btn" title="Remove option">
                 <i class="fas fa-times"></i>
@@ -1599,17 +2063,18 @@ function removeAttributeElement(attributeElement, variationId) {
     // Remove the element
     attributeElement.remove();
     
-    // Renumber remaining attributes
+    // Renumber remaining attributes starting from 1
     const remaining = attributesList.querySelectorAll('.attribute-item');
     remaining.forEach((item, index) => {
-        item.dataset.attributeIndex = index + 1;
+        const newIndex = index + 1;
+        item.dataset.attributeIndex = newIndex;
         const badge = item.querySelector('.attribute-badge');
-        if (badge) badge.textContent = `#${index + 1}`;
+        if (badge) badge.textContent = `Option ${newIndex}`;
     });
     
     // Update chip state if it was from quick add
     if (attrName) {
-        const chip = document.querySelector(`.suggestion-chip[data-value="${attrName}"]`);
+        const chip = $q(`.suggestion-chip[data-value="${attrName}"]`);
         if (chip) {
             chip.classList.remove('selected');
             chip.innerHTML = `<i class="fas fa-plus-circle"></i> ${attrName}`;
@@ -1621,7 +2086,7 @@ function removeAttributeElement(attributeElement, variationId) {
 }
 
 window.removeAttribute = function(variationId, attributeIndex) {
-    const attributesList = document.querySelector(`.attributes-list[data-variation-id="${variationId}"]`);
+    const attributesList = $q(`.attributes-list[data-variation-id="${variationId}"]`);
     if (attributesList) {
         const attributeItem = attributesList.querySelector(`.attribute-item[data-attribute-index="${attributeIndex}"]`);
         if (attributeItem) {
@@ -1631,23 +2096,25 @@ window.removeAttribute = function(variationId, attributeIndex) {
 };
 
 window.removeVariation = function(id) {
-    const row = document.querySelector(`.variation-row[data-variation-id="${id}"]`);
+    const row = $q(`.variation-row[data-variation-id="${id}"]`);
     if (row) {
         row.remove();
         variations = variations.filter(v => v.id !== id);
     }
 };
 
-document.getElementById('add-variation-btn').addEventListener('click', createVariationRow);
+$('add-variation-btn').addEventListener('click', createVariationRow);
 
 createVariationRow();
 
 // ================= PRICING CALCULATIONS =================
+// Throttled version for input events (called frequently)
+const throttledUpdateVariationCalculations = throttle(() => {
+    updateVariationCalculations();
+}, 200);
+
 function updateVariationCalculations() {
-    const basePrice = parseFloat(document.getElementById('item-price').value) || 0;
-    if (basePrice === 0) return;
-    
-    document.querySelectorAll('.variation-row').forEach(row => {
+    $$('.variation-row').forEach(row => {
         const variationId = row.dataset.variationId;
         const calcDisplay = row.querySelector('.calc-display');
         const variationSummary = row.querySelector('.variation-summary');
@@ -1660,9 +2127,9 @@ function updateVariationCalculations() {
         let maxPrice = 0;
         
         attributes.forEach(attr => {
-            const stock = parseFloat(attr.querySelector('.attribute-stock').value) || 0;
-            const pieces = parseFloat(attr.querySelector('.attribute-pieces').value) || 1;
-            const attrPrice = parseFloat(attr.querySelector('.attribute-price').value) || basePrice;
+            const stock = parseFloat(attr.querySelector('.attribute-stock')?.value) || 0;
+            const pieces = parseFloat(attr.querySelector('.attribute-pieces')?.value) || 1;
+            const attrPrice = parseFloat(attr.querySelector('.attribute-price')?.value) || 0;
             
             totalStock += stock;
             totalPieces += stock * pieces;
@@ -1676,9 +2143,10 @@ function updateVariationCalculations() {
         
         if (totalStock > 0 && calcDisplay) {
             const avgPrice = totalValue / totalStock;
-            const priceRange = minPrice === maxPrice 
-                ? `KES ${minPrice.toLocaleString()}`
-                : `KES ${minPrice.toLocaleString()} - ${maxPrice.toLocaleString()}`;
+            const priceRange = minPrice === Infinity ? 'Not set'
+                : minPrice === maxPrice 
+                    ? `KES ${minPrice.toLocaleString()}`
+                    : `KES ${minPrice.toLocaleString()} - ${maxPrice.toLocaleString()}`;
             
             calcDisplay.innerHTML = `
                 <span><strong>${attributes.length}</strong> options</span> • 
@@ -1697,27 +2165,16 @@ function updateVariationCalculations() {
 }
 
 function calculatePricing() {
-    const basePrice = parseFloat(document.getElementById('item-price').value) || 0;
-    let finalPrice = basePrice;
-    
-    if (finalPrice < 10000) {
-        finalPrice += finalPrice * 0.05;
-    } else {
-        finalPrice += finalPrice * 0.025;
-    }
-    
-    // Price breakdown removed - retail prices are now per-option
+    // Now prices are per-variation, just update the calculations
     updateVariationCalculations();
 }
 
-document.getElementById('item-price').addEventListener('input', () => {
-    calculatePricing();
-    updateVariationCalculations();
-});
+// Event listener for variation price changes (no longer tied to base price)
+// This is now handled by individual attribute inputs
 
 // ================= BULK PRICING TIERS =================
-document.getElementById('toggle-bulk-pricing').addEventListener('click', function() {
-    const container = document.getElementById('bulk-pricing-container');
+$('toggle-bulk-pricing').addEventListener('click', function() {
+    const container = $('bulk-pricing-container');
     const isVisible = container.style.display !== 'none';
     
     container.style.display = isVisible ? 'none' : 'block';
@@ -1758,19 +2215,19 @@ function addBulkTier() {
         </div>
     `;
     
-    document.getElementById('bulk-tiers-container').appendChild(tierDiv);
+    $('bulk-tiers-container').appendChild(tierDiv);
     bulkTiers.push({ id: bulkTierCounter });
 }
 
 window.removeBulkTier = function(id) {
-    const tier = document.querySelector(`[data-tier-id="${id}"]`);
+    const tier = $q(`[data-tier-id="${id}"]`);
     if (tier) {
         tier.remove();
         bulkTiers = bulkTiers.filter(t => t.id !== id);
     }
 };
 
-document.getElementById('add-bulk-tier-btn').addEventListener('click', addBulkTier);
+$('add-bulk-tier-btn').addEventListener('click', addBulkTier);
 
 // Helper function to get variation title from row
 function getVariationTitle(row) {
@@ -1785,14 +2242,19 @@ function getVariationTitle(row) {
 
 // ================= REVIEW SUMMARY =================
 function updateReviewSummary() {
-    const category = document.getElementById('category').selectedOptions[0]?.textContent || 'Not selected';
-    const subcategory = document.getElementById('subcategory').selectedOptions[0]?.textContent || 'Not selected';
-    const itemName = document.getElementById('item-name').value || 'Not entered';
-    const brand = document.getElementById('brand-name').value || 'Not selected';
-    const description = document.getElementById('description').value || 'Not entered';
+    const category = DOM.category?.selectedOptions[0]?.textContent || 'Not selected';
+    const subcategory = DOM.subcategory?.selectedOptions[0]?.textContent || 'Not selected';
+    const itemName = DOM.itemName?.value || 'Not entered';
+    const brand = DOM.brandName?.value === 'Custom/Other' 
+        ? DOM.customBrand?.value || 'Not entered'
+        : DOM.brandName?.value || 'Not selected';
+    const description = DOM.description?.value || 'Not entered';
     
-    const variationRows = document.querySelectorAll('.variation-row');
+    const variationRows = $$('.variation-row');
     let totalStock = 0;
+    let totalPieces = 0;
+    let minPrice = Infinity;
+    let maxPrice = 0;
     let variationsSummary = '<ul style="margin-left: 20px;">';
     
     variationRows.forEach((row, index) => {
@@ -1810,45 +2272,97 @@ function updateReviewSummary() {
             const retailPrice = parseFloat(attr.querySelector('.attribute-retail')?.value) || null;
             variationStockSubtotal += stock;
             totalStock += stock;
+            totalPieces += stock * pieces;
+            
+            if (price > 0) {
+                minPrice = Math.min(minPrice, price);
+                maxPrice = Math.max(maxPrice, price);
+            }
             
             let priceDisplay = `KES ${price.toLocaleString()}`;
             if (retailPrice) {
-                priceDisplay += ` <span style="color: #888; text-decoration: line-through;">Retail: ${retailPrice.toLocaleString()}</span>`;
+                priceDisplay += ` <span style="color: #888; text-decoration: line-through; font-size: 12px;">RRP: ${retailPrice.toLocaleString()}</span>`;
             }
-            attributesList += `<li>${attrName} - ${stock} units @ ${priceDisplay} (${pieces} pcs/unit)</li>`;
+            attributesList += `<li style="margin: 4px 0;">${attrName} - <strong>${stock}</strong> units × ${pieces} pcs @ ${priceDisplay}</li>`;
         });
         
-        variationsSummary += `<li><strong>${title}</strong> (${attributeItems.length} options, ${variationStockSubtotal} units)<ul style="margin-left: 20px; margin-top: 4px;">${attributesList}</ul></li>`;
+        variationsSummary += `<li style="margin: 8px 0;"><strong>${title}</strong> (${attributeItems.length} options, ${variationStockSubtotal} units)<ul style="margin-left: 20px; margin-top: 4px;">${attributesList}</ul></li>`;
     });
     variationsSummary += '</ul>';
     
-    const hasBulkPricing = document.getElementById('bulk-pricing-container').style.display !== 'none';
-    let bulkSummary = '<p>No bulk pricing tiers</p>';
+    // Price range display
+    const priceRangeDisplay = minPrice === Infinity ? 'Not set' 
+        : minPrice === maxPrice ? `KES ${minPrice.toLocaleString()}`
+        : `KES ${minPrice.toLocaleString()} - KES ${maxPrice.toLocaleString()}`;
+    
+    const hasBulkPricing = DOM.bulkPricingContainer?.style.display !== 'none';
+    let bulkSummary = '<p style="color: #888;">No bulk pricing tiers</p>';
     
     if (hasBulkPricing) {
-        bulkSummary = '<ul style="margin-left: 20px;">';
-        document.querySelectorAll('.bulk-tier').forEach(tier => {
-            const min = tier.querySelector('.tier-min').value || 'N/A';
-            const max = tier.querySelector('.tier-max').value || '∞';
-            const price = tier.querySelector('.tier-price').value || 'N/A';
-            bulkSummary += `<li>${min} - ${max} units: KES ${price}</li>`;
-        });
-        bulkSummary += '</ul>';
+        const tiers = $$('.bulk-tier');
+        if (tiers.length > 0) {
+            bulkSummary = '<ul style="margin-left: 20px;">';
+            tiers.forEach(tier => {
+                const min = tier.querySelector('.tier-min').value || 'N/A';
+                const max = tier.querySelector('.tier-max').value || '∞';
+                const price = tier.querySelector('.tier-price').value || 'N/A';
+                if (min && price) {
+                    bulkSummary += `<li>${min} - ${max} units: KES ${parseFloat(price).toLocaleString()}</li>`;
+                }
+            });
+            bulkSummary += '</ul>';
+        }
+    }
+    
+    // Get product images count
+    let imagesCount = 0;
+    for (let i = 1; i <= 5; i++) {
+        const input = $(`media-upload-${i}`);
+        if (input?.files[0]) imagesCount++;
     }
     
     const reviewHTML = `
-        <p><strong>Category:</strong> ${category} > ${subcategory}</p>
-        <p><strong>Product Name:</strong> ${itemName}</p>
-        <p><strong>Brand:</strong> ${brand}</p>
-        <p><strong>Description:</strong> ${description.substring(0, 100)}${description.length > 100 ? '...' : ''}</p>
-        <p><strong>Total Stock:</strong> ${totalStock} units across ${variationRows.length} variation(s)</p>
-        <p><strong>Variations:</strong></p>
-        ${variationsSummary}
-        <p><strong>Bulk Pricing:</strong></p>
-        ${bulkSummary}
+        <div class="review-grid">
+            <div class="review-item">
+                <span class="review-label"><i class="fas fa-folder"></i> Category</span>
+                <span class="review-value">${category} > ${subcategory}</span>
+            </div>
+            <div class="review-item">
+                <span class="review-label"><i class="fas fa-box"></i> Product Name</span>
+                <span class="review-value">${itemName}</span>
+            </div>
+            <div class="review-item">
+                <span class="review-label"><i class="fas fa-certificate"></i> Brand</span>
+                <span class="review-value">${brand}</span>
+            </div>
+            <div class="review-item">
+                <span class="review-label"><i class="fas fa-images"></i> Images</span>
+                <span class="review-value">${imagesCount} photo(s) uploaded</span>
+            </div>
+            <div class="review-item">
+                <span class="review-label"><i class="fas fa-warehouse"></i> Total Stock</span>
+                <span class="review-value">${totalStock.toLocaleString()} units (${totalPieces.toLocaleString()} pieces)</span>
+            </div>
+            <div class="review-item">
+                <span class="review-label"><i class="fas fa-tag"></i> Price Range</span>
+                <span class="review-value">${priceRangeDisplay}</span>
+            </div>
+        </div>
+        <div class="review-description">
+            <span class="review-label"><i class="fas fa-align-left"></i> Description</span>
+            <p>${description.substring(0, 200)}${description.length > 200 ? '...' : ''}</p>
+        </div>
+        <div class="review-variations">
+            <span class="review-label"><i class="fas fa-boxes"></i> Variations (${variationRows.length})</span>
+            ${variationsSummary}
+        </div>
+        <div class="review-bulk">
+            <span class="review-label"><i class="fas fa-layer-group"></i> Bulk Pricing</span>
+            ${bulkSummary}
+        </div>
     `;
     
-    document.getElementById('review-summary').innerHTML = reviewHTML;
+    $('review-summary').innerHTML = reviewHTML;
 }
 
 // ================= FORM SUBMISSION WITH QUEUE =================
@@ -1861,7 +2375,7 @@ async function fileToDataUrl(file) {
     });
 }
 
-document.getElementById('item-listing-form').addEventListener('submit', async (event) => {
+$('item-listing-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     
     const user = auth.currentUser;
@@ -1870,73 +2384,72 @@ document.getElementById('item-listing-form').addEventListener('submit', async (e
         return;
     }
     
-    // Show loading state on submit button
-    const submitBtn = document.getElementById('submit-button');
-    const originalBtnText = submitBtn.innerHTML;
-    submitBtn.disabled = true;
-    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Preparing upload...';
+    // Check network connection
+    if (!navigator.onLine) {
+        showNotification("You're offline. Please check your connection and try again.", 'error');
+        return;
+    }
     
-    try {
-        // Collect form data
-        const category = document.getElementById('category').value;
-        const subcategory = document.getElementById('subcategory').value;
-        const subsubcategory = document.getElementById('subsubcategory').value;
-        const customSubsubcategory = document.getElementById('custom-subsubcategory').value;
-        const itemName = document.getElementById('item-name').value;
-        const brandName = document.getElementById('brand-name').value === 'Custom/Other' 
-            ? document.getElementById('custom-brand').value 
-            : document.getElementById('brand-name').value;
-        const description = document.getElementById('description').value;
-        const itemPrice = parseFloat(document.getElementById('item-price').value);
-        const initialPrice = parseFloat(document.getElementById('initial-price').value) || null;
+    // Rate limit submissions (max 3 per minute)
+    if (!rateLimiter.isAllowed('form_submit', 3, 60000)) {
+        showNotification("Please wait before submitting again.", 'warning');
+        return;
+    }
+    
+    // Prevent double submission
+    const submitResult = await withLock('form_submission', async () => {
+        const submitBtn = DOM.submitButton;
+        const originalBtnText = submitBtn.innerHTML;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Preparing upload...';
         
-        // Calculate final price
-        let finalPrice = itemPrice;
-        if (finalPrice < 10000) {
-            finalPrice += finalPrice * 0.05;
-        } else {
-            finalPrice += finalPrice * 0.025;
-        }
-        
-        // Handle custom category
-        let finalSubsubcategory = subsubcategory;
-        if (subsubcategory === 'custom' && customSubsubcategory) {
-            finalSubsubcategory = customSubsubcategory.toLowerCase().replace(/\s+/g, '-');
-        }
-        
-        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Compressing images...';
-        
-        // Compress and convert product images to data URLs
-        const productImagesData = [];
-        for (let i = 1; i <= 5; i++) {
-            const file = document.getElementById(`media-upload-${i}`).files[0];
-            if (file) {
-                const compressedFile = await compressImage(file);
-                const dataUrl = await fileToDataUrl(compressedFile);
-                productImagesData.push({
-                    name: file.name,
-                    dataUrl: dataUrl
-                });
-            }
-        }
-        
-        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing variations...';
-        
-        // Process variations with attributes
-        const variationRows = document.querySelectorAll('.variation-row');
-        const processedVariations = [];
-        
-        for (let row of variationRows) {
-            const variationTitle = getVariationTitle(row);
+        try {
+            // Collect and sanitize form data
+            const formData = sanitizeFormData(getFormValues());
+            const brandName = formData.brandName === 'Custom/Other' 
+                ? formData.customBrand 
+                : formData.brandName;
             
-            // Validate variation title
-            if (!variationTitle || variationTitle.trim() === '') {
-                throw new Error('Each variation must have a type selected');
+            let minPrice = Infinity;
+            let maxPrice = 0;
+            
+            // Handle custom category
+            let finalSubsubcategory = formData.subsubcategory;
+            if (formData.subsubcategory === 'custom' && formData.customSubsubcategory) {
+                finalSubsubcategory = formData.customSubsubcategory.toLowerCase().replace(/\s+/g, '-');
             }
             
-            const attributeItems = row.querySelectorAll('.attribute-item');
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Compressing images...';
             
-            // Validate at least one attribute
+            // Compress and convert product images to data URLs
+            const productImagesData = [];
+            for (let i = 1; i <= 5; i++) {
+                const file = $(`media-upload-${i}`).files[0];
+                if (file) {
+                    const compressedFile = await compressImage(file);
+                    const dataUrl = await fileToDataUrl(compressedFile);
+                    productImagesData.push({
+                        name: sanitizeInput(file.name),
+                        dataUrl: dataUrl
+                    });
+                }
+            }
+            
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing variations...';
+            
+            // Process variations with attributes
+            const variationRows = $$('.variation-row');
+            const processedVariations = [];
+            
+            for (let row of variationRows) {
+                const variationTitle = getVariationTitle(row);
+                
+                // Validate variation title
+                if (!variationTitle || variationTitle.trim() === '') {
+                    throw new Error('Each variation must have a type selected');
+                }
+                
+                const attributeItems = row.querySelectorAll('.attribute-item');
             if (attributeItems.length === 0) {
                 throw new Error(`Variation "${variationTitle}" must have at least one option`);
             }
@@ -2005,6 +2518,12 @@ document.getElementById('item-listing-form').addEventListener('submit', async (e
                     retailPrice: retailPrice,
                     imageFile: imageData
                 });
+                
+                // Track min/max prices for the listing
+                if (attributePrice > 0) {
+                    minPrice = Math.min(minPrice, attributePrice);
+                    maxPrice = Math.max(maxPrice, attributePrice);
+                }
             }
             
             processedVariations.push({
@@ -2027,10 +2546,20 @@ document.getElementById('item-listing-form').addEventListener('submit', async (e
             throw new Error('Total stock must be at least 1. Please check your variation options.');
         }
         
+        // Calculate final price from min price (with platform fee)
+        const itemPrice = minPrice !== Infinity ? minPrice : 0;
+        let finalPrice = itemPrice;
+        if (finalPrice < 10000) {
+            finalPrice += finalPrice * 0.05;
+        } else {
+            finalPrice += finalPrice * 0.025;
+        }
+        const initialPrice = null;
+        
         // Process bulk pricing tiers
         const processedBulkTiers = [];
-        if (document.getElementById('bulk-pricing-container').style.display !== 'none') {
-            document.querySelectorAll('.bulk-tier').forEach(tier => {
+        if (DOM.bulkPricingContainer?.style.display !== 'none') {
+            $$('.bulk-tier').forEach(tier => {
                 const min = parseInt(tier.querySelector('.tier-min').value);
                 const max = parseInt(tier.querySelector('.tier-max').value) || null;
                 const price = parseFloat(tier.querySelector('.tier-price').value);
@@ -2041,31 +2570,31 @@ document.getElementById('item-listing-form').addEventListener('submit', async (e
             });
         }
         
-        const listingId = document.getElementById('submit-button').dataset.id;
+        const listingId = DOM.submitButton?.dataset.id;
         
         // Save custom brand if user added a new one
-        if (document.getElementById('brand-name').value === 'Custom/Other') {
-            const customBrand = document.getElementById('custom-brand').value.trim();
+        if (formData.brandName === 'Custom/Other') {
+            const customBrand = formData.customBrand.trim();
             if (customBrand) {
-                await saveCustomBrand(category, customBrand);
+                await saveCustomBrand(formData.category, customBrand);
             }
         }
         
         // Save custom subcategory if user added a new one
-        if (subsubcategory === 'custom' && customSubsubcategory) {
-            await saveCustomCategory(category, subcategory, customSubsubcategory);
+        if (formData.subsubcategory === 'custom' && formData.customSubsubcategory) {
+            await saveCustomCategory(formData.category, formData.subcategory, formData.customSubsubcategory);
         }
         
         // Create listing data object for queue
         const listingDataForQueue = {
-            category,
-            subcategory,
-            subsubcategory,
-            customSubsubcategory,
+            category: formData.category,
+            subcategory: formData.subcategory,
+            subsubcategory: formData.subsubcategory,
+            customSubsubcategory: formData.customSubsubcategory,
             finalSubsubcategory,
-            itemName,
+            itemName: formData.itemName,
             brandName,
-            description,
+            description: formData.description,
             itemPrice,
             finalPrice,
             initialPrice,
@@ -2078,71 +2607,212 @@ document.getElementById('item-listing-form').addEventListener('submit', async (e
         // Add to queue
         const queueId = addToQueue(listingDataForQueue);
         
-        // Reset button state
         submitBtn.disabled = false;
         submitBtn.innerHTML = originalBtnText;
         
-        // Show success notification
-        showNotification(`✓ Listing "${itemName}" added to upload queue! You can start a new listing now.`, 'success');
+        showNotification(`✓ Listing "${formData.itemName}" added to upload queue! You can start a new listing now.`, 'success');
         
-        // Reset form immediately
+        // Add the new listing preview immediately
+        addNewListingPreview(listingDataForQueue, productImagesData);
+        
         resetForm();
         clearDraft();
         
-        // Reload listings after a short delay
-        setTimeout(() => {
-            loadUserListings();
-        }, 2000);
+        return true; // Success
         
     } catch (error) {
         console.error("Error preparing listing:", error);
-        showNotification("Error: " + error.message);
+        
+        // Show user-friendly error message
+        let errorMessage = error.message || 'Unknown error occurred';
+        if (errorMessage.includes('undefined')) {
+            errorMessage = 'Please ensure all required fields are filled correctly.';
+        } else if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
+            errorMessage = 'Network error. Your draft has been saved - please try again.';
+            saveDraft(); // Save progress on network error
+        } else if (errorMessage.includes('permission')) {
+            errorMessage = 'Permission denied. Please refresh and try again.';
+        }
+        showNotification("Error: " + errorMessage, 'error');
         
         // Reset button state on error
         submitBtn.disabled = false;
         submitBtn.innerHTML = originalBtnText;
+        
+        return false; // Failed
+    }
+    });
+    
+    // Handle null result (lock prevented execution)
+    if (submitResult === null) {
+        showNotification("Submission already in progress, please wait...", 'info');
     }
 });
 
 function resetForm() {
-    document.getElementById('item-listing-form').reset();
-    document.getElementById('submit-button').innerText = 'Publish Listing';
-    document.getElementById('submit-button').dataset.id = '';
+    $('item-listing-form').reset();
+    if (DOM.submitButton) {
+        DOM.submitButton.innerHTML = '<i class="fas fa-check-circle"></i> Publish Listing';
+        DOM.submitButton.dataset.id = '';
+    }
+    
     currentStep = 1;
     showStep(1);
     variations = [];
     variationCounter = 0;
     bulkTiers = [];
     bulkTierCounter = 0;
-    document.getElementById('variations-container').innerHTML = '';
-    document.getElementById('bulk-tiers-container').innerHTML = '';
-    document.getElementById('bulk-pricing-container').style.display = 'none';
-    document.getElementById('photo-trace-preview').style.display = 'none';
-    document.getElementById('photo-trace-label').style.display = 'flex';
     
+    if (DOM.variationsContainer) DOM.variationsContainer.innerHTML = '';
+    if (DOM.bulkTiersContainer) DOM.bulkTiersContainer.innerHTML = '';
+    if (DOM.bulkPricingContainer) DOM.bulkPricingContainer.style.display = 'none';
+    
+    // Reset photo trace
+    const photoTracePreview = $('photo-trace-preview');
+    const photoTraceLabel = $('photo-trace-label');
+    if (photoTracePreview) photoTracePreview.style.display = 'none';
+    if (photoTraceLabel) photoTraceLabel.style.display = 'flex';
+    
+    // Reset all product images
     for (let i = 1; i <= 5; i++) {
-        const label = document.getElementById(`image-upload-label-${i}`);
+        const label = $(`image-upload-label-${i}`);
+        const input = $(`media-upload-${i}`);
         if (label) {
             label.style.backgroundImage = '';
+            label.classList.remove('has-image', 'restored-preview');
             const icon = label.querySelector('i');
+            const uploadText = label.querySelector('.upload-text');
             if (icon) icon.style.display = 'flex';
+            if (uploadText) uploadText.style.display = 'block';
         }
+        if (input) input.value = '';
     }
     
+    // Reset brand dropdown
+    if (DOM.brandName) {
+        DOM.brandName.value = '';
+        if (DOM.customBrandGroup) DOM.customBrandGroup.style.display = 'none';
+        if (DOM.customBrand) {
+            DOM.customBrand.value = '';
+            DOM.customBrand.required = false;
+        }
+        refreshSearchableDropdown('brand-name');
+        updateSearchableDropdownDisplay('brand-name');
+    }
+    
+    // Reset category dropdowns
+    if (DOM.category) {
+        DOM.category.value = '';
+        $('subcategory-group').style.display = 'none';
+        $('subsubcategory-group').style.display = 'none';
+        $('custom-subsubcategory-group').style.display = 'none';
+        refreshSearchableDropdown('category');
+        updateSearchableDropdownDisplay('category');
+    }
+    
+    clearDraft();
     createVariationRow();
+}
+
+// ================= ADD NEW LISTING PREVIEW =================
+function addNewListingPreview(listingData, productImages) {
+    const listingsContainer = DOM.listingsContainer;
+    if (!listingsContainer) return;
+    
+    // Clear "no listings" message if showing
+    const noListingsMsg = listingsContainer.querySelector('p[style*="text-align: center"]');
+    if (noListingsMsg?.textContent.includes('No listings yet')) {
+        listingsContainer.innerHTML = '';
+    }
+    
+    // Create preview element with uploading indicator
+    const previewElement = document.createElement('div');
+    previewElement.className = 'listing listing-uploading';
+    previewElement.id = `preview-${Date.now()}`;
+    
+    // Build image preview from data URLs
+    let imagePreviewHTML = '';
+    if (productImages && productImages.length > 0) {
+        imagePreviewHTML = '<div class="listing-media">';
+        productImages.forEach(img => {
+            imagePreviewHTML += `<img src="${img.dataUrl}" class="listing-img" style="opacity: 0.8;" />`;
+        });
+        imagePreviewHTML += '</div>';
+    }
+    
+    // Calculate totals from variations
+    let totalStock = 0;
+    let minPrice = Infinity;
+    let maxPrice = 0;
+    
+    listingData.variations.forEach(v => {
+        v.attributes.forEach(attr => {
+            totalStock += attr.stock;
+            if (attr.price > 0) {
+                minPrice = Math.min(minPrice, attr.originalPrice || attr.price);
+                maxPrice = Math.max(maxPrice, attr.originalPrice || attr.price);
+            }
+        });
+    });
+    
+    const priceDisplay = minPrice === maxPrice 
+        ? `KES ${minPrice.toLocaleString()}` 
+        : `KES ${minPrice.toLocaleString()} - ${maxPrice.toLocaleString()}`;
+    
+    // Build variations summary
+    let variationsHTML = '<div style="margin: 12px 0;"><strong>Variations:</strong><ul style="margin: 8px 0 0 20px;">';
+    listingData.variations.forEach(v => {
+        variationsHTML += `<li><strong>${v.title}:</strong> ${v.attributes.length} options</li>`;
+    });
+    variationsHTML += '</ul></div>';
+    
+    previewElement.innerHTML = `
+        <div class="upload-status-banner">
+            <i class="fas fa-cloud-upload-alt fa-spin"></i>
+            <span>Uploading to server...</span>
+        </div>
+        <div class="listing-header">
+            <div>
+                <h4>${listingData.itemName}</h4>
+                <p style="color: #ff5722; font-weight: 600; margin: 4px 0;">Brand: ${listingData.brandName}</p>
+            </div>
+        </div>
+        ${imagePreviewHTML}
+        <p><strong>Category:</strong> ${listingData.category} > ${listingData.subcategory}</p>
+        <p><strong>Price:</strong> ${priceDisplay}</p>
+        <p><strong>Total Stock:</strong> ${totalStock} units</p>
+        ${variationsHTML}
+        <p><strong>Description:</strong> ${listingData.description.substring(0, 150)}${listingData.description.length > 150 ? '...' : ''}</p>
+    `;
+    
+    // Insert at the top of listings
+    listingsContainer.insertBefore(previewElement, listingsContainer.firstChild);
+    
+    // Scroll to the new listing
+    previewElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 // ================= LOAD USER LISTINGS =================
 async function loadUserListings() {
     const user = auth.currentUser;
-    const listingsContainer = document.getElementById('listings-container');
+    const listingsContainer = $('listings-container');
+    
+    if (!listingsContainer) return;
+    
     listingsContainer.innerHTML = '<div style="text-align: center; padding: 20px;"><i class="fas fa-spinner fa-spin"></i> Loading listings...</div>';
     
-    if (!user) return;
+    if (!user) {
+        listingsContainer.innerHTML = '<p style="text-align: center; color: #757575; padding: 40px;">Please log in to view your listings.</p>';
+        return;
+    }
     
     try {
-        const q = query(collection(db, "Listings"), where("uploaderId", "==", user.uid));
-        const querySnapshot = await getDocs(q);
+        // Use retry for network resilience
+        const querySnapshot = await withRetry(async () => {
+            requireOnline();
+            const q = query(collection(db, "Listings"), where("uploaderId", "==", user.uid));
+            return await getDocs(q);
+        }, 3, 1000);
         
         if (querySnapshot.empty) {
             listingsContainer.innerHTML = '<p style="text-align: center; color: #757575; padding: 40px;">No listings yet. Create your first wholesale listing above!</p>';
@@ -2155,18 +2825,19 @@ async function loadUserListings() {
             const listing = docSnap.data();
             const listingElement = document.createElement('div');
             listingElement.className = 'listing';
+            listingElement.dataset.listingId = docSnap.id;
             
             let mediaHTML = '';
             if (listing.photoTraceUrl || (listing.imageUrls && listing.imageUrls.length > 0)) {
-                mediaHTML = '<div class="listing-media">';
+                let allImages = [];
                 
                 if (listing.photoTraceUrl) {
-                    mediaHTML += `<img src="${listing.photoTraceUrl}" class="listing-img" onclick="openModal('${listing.photoTraceUrl}')" title="Verification Photo" />`;
+                    allImages.push({ url: listing.photoTraceUrl, title: 'Verification Photo' });
                 }
                 
                 if (listing.imageUrls) {
                     listing.imageUrls.forEach(url => {
-                        mediaHTML += `<img src="${url}" class="listing-img" onclick="openModal('${url}')" />`;
+                        allImages.push({ url, title: 'Product Image' });
                     });
                 }
                 
@@ -2175,29 +2846,74 @@ async function loadUserListings() {
                         if (variation.attributes) {
                             variation.attributes.forEach(attr => {
                                 if (attr.photoUrl) {
-                                    mediaHTML += `<img src="${attr.photoUrl}" class="listing-img" onclick="openModal('${attr.photoUrl}')" title="${variation.title}: ${attr.attr_name}" />`;
+                                    allImages.push({ url: attr.photoUrl, title: `${variation.title}: ${attr.attr_name}` });
                                 }
                             });
                         }
                     });
                 }
                 
+                // Show first 4 images, rest hidden with "show more"
+                const visibleCount = 4;
+                const hasMore = allImages.length > visibleCount;
+                
+                mediaHTML = '<div class="listing-media-gallery">';
+                mediaHTML += '<div class="listing-media-grid">';
+                
+                allImages.forEach((img, index) => {
+                    const hiddenClass = index >= visibleCount ? 'hidden-image' : '';
+                    mediaHTML += `<img src="${img.url}" class="listing-img ${hiddenClass}" onclick="openModal('${img.url}')" title="${img.title}" />`;
+                });
+                
+                mediaHTML += '</div>';
+                
+                if (hasMore) {
+                    mediaHTML += `
+                        <button class="show-more-images-btn" onclick="toggleMoreImages(this)">
+                            <i class="fas fa-images"></i> Show ${allImages.length - visibleCount} more
+                        </button>
+                    `;
+                }
+                
                 mediaHTML += '</div>';
             }
             
-            let variationsHTML = '';
+            // Build variations with quick edit for each option
+            let variationsQuickEditHTML = '';
             if (listing.variations && listing.variations.length > 0) {
-                variationsHTML = '<div style="margin: 12px 0;"><strong>Variations:</strong><ul style="margin: 8px 0 0 20px;">';
-                listing.variations.forEach(v => {
+                variationsQuickEditHTML = '<div class="variations-quick-edit">';
+                listing.variations.forEach((v, vIndex) => {
                     if (v.attributes) {
-                        variationsHTML += `<li><strong>${v.title}:</strong><ul style="margin-left: 15px;">`;
-                        v.attributes.forEach(attr => {
-                            variationsHTML += `<li>${attr.attr_name} - ${attr.stock} units (${attr.piece_count} pcs/unit) @ KES ${attr.price.toFixed(2)}</li>`;
+                        variationsQuickEditHTML += `
+                            <div class="variation-quick-edit-group">
+                                <h6><i class="fas fa-layer-group"></i> ${v.title}</h6>
+                                <div class="variation-options-grid">
+                        `;
+                        v.attributes.forEach((attr, aIndex) => {
+                            variationsQuickEditHTML += `
+                                <div class="variation-option-edit" data-variation-index="${vIndex}" data-attr-index="${aIndex}">
+                                    <span class="option-name">${attr.attr_name}</span>
+                                    <div class="option-fields">
+                                        <div class="mini-field">
+                                            <label>Stock</label>
+                                            <input type="number" class="var-stock" value="${attr.stock}" min="0">
+                                        </div>
+                                        <div class="mini-field">
+                                            <label>Price</label>
+                                            <input type="number" class="var-price" value="${attr.originalPrice || attr.price}" step="0.01" min="0">
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
                         });
-                        variationsHTML += '</ul></li>';
+                        variationsQuickEditHTML += '</div></div>';
                     }
                 });
-                variationsHTML += '</ul></div>';
+                variationsQuickEditHTML += `
+                    <button class="save-variations-btn" data-listing-id="${docSnap.id}">
+                        <i class="fas fa-save"></i> Save All Changes
+                    </button>
+                </div>`;
             }
             
             let bulkPricingHTML = '';
@@ -2215,30 +2931,22 @@ async function loadUserListings() {
                         <h4>${listing.name}</h4>
                         <p style="color: #ff5722; font-weight: 600; margin: 4px 0;">Brand: ${listing.brand}</p>
                     </div>
+                    <span class="listing-stock-badge">${listing.totalStock || 0} units</span>
                 </div>
                 ${mediaHTML}
                 <p><strong>Category:</strong> ${listing.category} > ${listing.subcategory}</p>
-                <p><strong>Price per Unit:</strong> KES ${listing.price.toFixed(2)}</p>
-                ${listing.initialPrice ? `<p><strong>Original Retail Price:</strong> KES ${listing.initialPrice.toFixed(2)}</p>` : ''}
-                <p><strong>Total Stock:</strong> ${listing.totalStock || 0} units</p>
-                ${variationsHTML}
-                ${bulkPricingHTML}
                 <p><strong>Description:</strong> ${listing.description.substring(0, 150)}${listing.description.length > 150 ? '...' : ''}</p>
+                ${bulkPricingHTML}
                 
                 <div class="quick-edit-section">
-                    <h5><i class="fas fa-bolt"></i> Quick Edit</h5>
-                    <div class="quick-edit-fields">
-                        <div class="form-group">
-                            <label>New Price (KES)</label>
-                            <input type="number" class="quick-edit-price" value="${listing.originalPrice || listing.price}" step="0.01">
-                        </div>
-                        <div class="form-group">
-                            <label>Update Stock</label>
-                            <input type="number" class="quick-edit-stock" value="${listing.totalStock || 0}" min="0">
-                        </div>
-                        <button class="quick-edit-btn" data-listing-id="${docSnap.id}">
-                            <i class="fas fa-save"></i> Save
+                    <div class="quick-edit-header">
+                        <h5><i class="fas fa-bolt"></i> Quick Edit Options</h5>
+                        <button class="toggle-quick-edit-btn" onclick="toggleVariationEdit(this)">
+                            <i class="fas fa-chevron-down"></i>
                         </button>
+                    </div>
+                    <div class="quick-edit-body" style="display: none;">
+                        ${variationsQuickEditHTML}
                     </div>
                 </div>
                 
@@ -2255,34 +2963,174 @@ async function loadUserListings() {
             listingsContainer.appendChild(listingElement);
         });
         
-        document.querySelectorAll('.quick-edit-btn').forEach(button => {
+        // Event listeners for save variations buttons
+        $$('.save-variations-btn').forEach(button => {
             button.addEventListener('click', async () => {
                 const listingId = button.dataset.listingId;
-                const priceInput = button.parentElement.querySelector('.quick-edit-price');
-                const stockInput = button.parentElement.querySelector('.quick-edit-stock');
-                
-                await quickEditListing(listingId, parseFloat(priceInput.value), parseInt(stockInput.value));
+                await quickEditVariations(listingId, button.closest('.listing'));
             });
         });
         
-        document.querySelectorAll('.edit-btn').forEach(button => {
+        $$('.edit-btn').forEach(button => {
             button.addEventListener('click', () => loadEditForm(button.dataset.id));
         });
         
-        document.querySelectorAll('.delete-btn').forEach(button => {
+        $$('.delete-btn').forEach(button => {
             button.addEventListener('click', () => deleteListing(button.dataset.id));
         });
         
     } catch (error) {
         console.error("Error loading listings:", error);
-        listingsContainer.innerHTML = '<p style="text-align: center; color: #f44336; padding: 40px;">Error loading listings. Please refresh the page.</p>';
+        let errorMsg = 'Error loading listings. ';
+        if (!navigator.onLine) {
+            errorMsg += 'You appear to be offline.';
+        } else {
+            errorMsg += 'Please refresh the page.';
+        }
+        listingsContainer.innerHTML = `
+            <div style="text-align: center; color: #f44336; padding: 40px;">
+                <i class="fas fa-exclamation-triangle" style="font-size: 48px; margin-bottom: 16px;"></i>
+                <p>${errorMsg}</p>
+                <button onclick="loadUserListings()" style="margin-top: 16px; padding: 10px 20px; background: #ff5722; color: white; border: none; border-radius: 8px; cursor: pointer;">
+                    <i class="fas fa-refresh"></i> Retry
+                </button>
+            </div>
+        `;
     }
 }
 
-// ================= QUICK EDIT =================
+// ================= TOGGLE VARIATION EDIT =================
+window.toggleVariationEdit = function(btn) {
+    const quickEditBody = btn.closest('.quick-edit-section').querySelector('.quick-edit-body');
+    const icon = btn.querySelector('i');
+    
+    if (quickEditBody.style.display === 'none') {
+        quickEditBody.style.display = 'block';
+        icon.className = 'fas fa-chevron-up';
+    } else {
+        quickEditBody.style.display = 'none';
+        icon.className = 'fas fa-chevron-down';
+    }
+};
+
+// ================= QUICK EDIT VARIATIONS =================
+async function quickEditVariations(listingId, listingElement) {
+    // Check network before attempting
+    if (!navigator.onLine) {
+        showNotification("You're offline. Please connect to save changes.", 'error');
+        return;
+    }
+    
+    // Rate limit updates
+    if (!rateLimiter.isAllowed('quick_edit', 10, 60000)) {
+        showNotification("Please wait before making more edits.", 'warning');
+        return;
+    }
+    
+    const saveBtn = listingElement.querySelector('.save-variations-btn');
+    if (!saveBtn) return;
+    
+    const originalBtnText = saveBtn.innerHTML;
+    
+    try {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+        
+        // Use retry for network resilience
+        await withRetry(async () => {
+            // Get the current listing data
+            const docRef = doc(db, "Listings", listingId);
+            const docSnap = await getDoc(docRef);
+            
+            if (!docSnap.exists()) {
+                throw new Error("Listing not found");
+            }
+            
+            const listing = docSnap.data();
+            
+            // Collect updated values from the form
+            const optionEdits = listingElement.querySelectorAll('.variation-option-edit');
+            let totalStock = 0;
+            let minPrice = Infinity;
+            let maxPrice = 0;
+            
+            const updatedVariations = listing.variations.map((v, vIndex) => ({
+                ...v,
+                attributes: v.attributes.map((attr, aIndex) => {
+                    const editElement = listingElement.querySelector(
+                        `.variation-option-edit[data-variation-index="${vIndex}"][data-attr-index="${aIndex}"]`
+                    );
+                    
+                    if (editElement) {
+                        const newStock = parseInt(editElement.querySelector('.var-stock').value) || 0;
+                        const newOriginalPrice = parseFloat(editElement.querySelector('.var-price').value) || attr.originalPrice || attr.price;
+                        
+                        // Calculate final price with platform fee
+                        let newFinalPrice = newOriginalPrice;
+                        if (newFinalPrice < 10000) {
+                            newFinalPrice += newFinalPrice * 0.05;
+                        } else {
+                            newFinalPrice += newFinalPrice * 0.025;
+                        }
+                        
+                        totalStock += newStock;
+                        if (newOriginalPrice > 0) {
+                            minPrice = Math.min(minPrice, newOriginalPrice);
+                            maxPrice = Math.max(maxPrice, newOriginalPrice);
+                        }
+                        
+                        return {
+                            ...attr,
+                            stock: newStock,
+                            price: newFinalPrice,
+                            originalPrice: newOriginalPrice
+                        };
+                    }
+                    
+                    totalStock += attr.stock;
+                    return attr;
+                })
+            }));
+            
+            // Update in Firestore
+            await updateDoc(docRef, {
+                variations: updatedVariations,
+                totalStock: totalStock,
+                price: minPrice !== Infinity ? minPrice * 1.05 : listing.price,
+                originalPrice: minPrice !== Infinity ? minPrice : listing.originalPrice,
+                updatedAt: new Date().toISOString()
+            });
+            
+            // Update the stock badge without reloading
+            const stockBadge = listingElement.querySelector('.listing-stock-badge');
+            if (stockBadge) {
+                stockBadge.textContent = `${totalStock} units`;
+            }
+        }, 2, 1000);
+        
+        showNotification("Variations updated successfully!", 'success');
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = originalBtnText;
+        
+    } catch (error) {
+        console.error("Error updating variations:", error);
+        let errorMsg = "Error updating variations";
+        if (!navigator.onLine) {
+            errorMsg = "Network error - please try again when connected";
+        } else if (error.message) {
+            errorMsg = error.message;
+        }
+        showNotification(errorMsg, 'error');
+        
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="fas fa-save"></i> Save All Changes';
+    }
+}
+
+// ================= QUICK EDIT (LEGACY) =================
 async function quickEditListing(listingId, newPrice, newStock) {
     try {
-        document.getElementById('spinner').style.display = 'block';
+        $('spinner').style.display = 'block';
         
         let finalPrice = newPrice;
         if (finalPrice < 10000) {
@@ -2321,7 +3169,7 @@ async function quickEditListing(listingId, newPrice, newStock) {
         console.error("Error in quick edit:", error);
         showNotification("Error updating listing: " + error.message);
     } finally {
-        document.getElementById('spinner').style.display = 'none';
+        $('spinner').style.display = 'none';
     }
 }
 
@@ -2338,36 +3186,44 @@ async function loadEditForm(listingId) {
         
         const listing = docSnap.data();
         
-        document.getElementById('category').value = listing.category;
-        document.getElementById('category').dispatchEvent(new Event('change'));
+        $('category').value = listing.category;
+        $('category').dispatchEvent(new Event('change'));
         
         setTimeout(() => {
-            document.getElementById('subcategory').value = listing.subcategory;
-            document.getElementById('subcategory').dispatchEvent(new Event('change'));
+            $('subcategory').value = listing.subcategory;
+            $('subcategory').dispatchEvent(new Event('change'));
             
             setTimeout(() => {
-                document.getElementById('subsubcategory').value = listing.subsubcategory;
+                $('subsubcategory').value = listing.subsubcategory;
             }, 100);
         }, 100);
         
-        document.getElementById('brand-name').value = listing.brand;
-        document.getElementById('item-name').value = listing.name;
-        document.getElementById('description').value = listing.description;
-        document.getElementById('item-price').value = listing.originalPrice || listing.price;
-        
-        if (listing.initialPrice) {
-            document.getElementById('initial-price').value = listing.initialPrice;
-        }
+        $('brand-name').value = listing.brand;
+        $('item-name').value = listing.name;
+        $('description').value = listing.description;
         
         variations = [];
         variationCounter = 0;
-        document.getElementById('variations-container').innerHTML = '';
+        $('variations-container').innerHTML = '';
         
         if (listing.variations && listing.variations.length > 0) {
             listing.variations.forEach(v => {
                 createVariationRow();
-                const lastRow = document.querySelector('.variation-row:last-child');
-                lastRow.querySelector('.variation-title-input').value = v.title || '';
+                const lastRow = $q('.variation-row:last-child');
+                
+                // Set variation type
+                const typeSelect = lastRow.querySelector('.variation-type-select');
+                const titleInput = lastRow.querySelector('.variation-title-input');
+                
+                // Check if the title matches a preset option
+                const presetOption = Array.from(typeSelect.options).find(opt => opt.value === v.title);
+                if (presetOption) {
+                    typeSelect.value = v.title;
+                } else {
+                    typeSelect.value = 'custom';
+                    titleInput.style.display = 'block';
+                    titleInput.value = v.title || '';
+                }
                 
                 const attributesList = lastRow.querySelector('.attributes-list');
                 attributesList.innerHTML = '';
@@ -2378,15 +3234,27 @@ async function loadEditForm(listingId) {
                         const newAttr = attributesList.lastElementChild;
                         newAttr.querySelector('.attribute-name').value = attr.attr_name;
                         newAttr.querySelector('.attribute-stock').value = attr.stock;
-                        newAttr.querySelector('.attribute-pieces').value = attr.piece_count;
-                        newAttr.querySelector('.attribute-price').value = attr.price;
+                        newAttr.querySelector('.attribute-pieces').value = attr.piece_count || 1;
+                        newAttr.querySelector('.attribute-price').value = attr.originalPrice || attr.price;
+                        
+                        // Set retail price if available
+                        const retailInput = newAttr.querySelector('.attribute-retail');
+                        if (retailInput && attr.retailPrice) {
+                            retailInput.value = attr.retailPrice;
+                        }
                     });
                 }
+                
+                // Update calculations for this variation
+                updateAttributeCount(lastRow.dataset.variationId);
             });
         }
         
-        document.getElementById('submit-button').innerHTML = '<i class="fas fa-save"></i> Update Listing';
-        document.getElementById('submit-button').dataset.id = listingId;
+        // Update overall calculations
+        updateVariationCalculations();
+        
+        $('submit-button').innerHTML = '<i class="fas fa-save"></i> Update Listing';
+        $('submit-button').dataset.id = listingId;
         
         currentStep = 1;
         showStep(1);
@@ -2402,31 +3270,89 @@ async function loadEditForm(listingId) {
 
 // ================= DELETE LISTING =================
 async function deleteListing(listingId) {
+    // Confirm before deleting
+    const confirmed = confirm('⚠️ Are you sure you want to delete this listing?\n\nThis action cannot be undone. All product data and images will be permanently removed.');
+    
+    if (!confirmed) {
+        return;
+    }
+    
+    // Check network
+    if (!navigator.onLine) {
+        showNotification("You're offline. Please connect to delete listings.", 'error');
+        return;
+    }
+    
+    // Rate limit deletions
+    if (!rateLimiter.isAllowed('delete_listing', 5, 60000)) {
+        showNotification("Please wait before deleting more listings.", 'warning');
+        return;
+    }
+    
+    const spinner = $('spinner');
+    
     try {
-        document.getElementById('spinner').style.display = 'block';
-        await deleteDoc(doc(db, "Listings", listingId));
+        if (spinner) spinner.style.display = 'block';
+        
+        // Use retry for network resilience
+        await withRetry(async () => {
+            await deleteDoc(doc(db, "Listings", listingId));
+        }, 2, 1000);
+        
         showNotification("Listing deleted successfully!", 'success');
-        await loadUserListings();
+        
+        // Remove from DOM immediately for better UX
+        const listingElement = $q(`.listing[data-listing-id="${listingId}"]`);
+        if (listingElement) {
+            listingElement.style.opacity = '0.5';
+            listingElement.style.transition = 'opacity 0.3s';
+            setTimeout(() => listingElement.remove(), 300);
+        }
+        
     } catch (error) {
         console.error("Error deleting listing:", error);
-        showNotification("Error deleting listing: " + error.message, 'error');
+        let errorMsg = "Error deleting listing";
+        if (error.code === 'permission-denied') {
+            errorMsg = "You don't have permission to delete this listing";
+        } else if (!navigator.onLine) {
+            errorMsg = "Network error - please try again when connected";
+        }
+        showNotification(errorMsg, 'error');
     } finally {
-        document.getElementById('spinner').style.display = 'none';
+        if (spinner) spinner.style.display = 'none';
     }
 }
 
 // ================= MODAL FUNCTIONS =================
 window.openModal = function(imageUrl) {
-    document.getElementById('modal-image').src = imageUrl;
-    document.getElementById('imageModal').style.display = "block";
+    $('modal-image').src = imageUrl;
+    $('imageModal').style.display = "block";
 };
 
 window.closeModal = function() {
-    document.getElementById('imageModal').style.display = "none";
+    $('imageModal').style.display = "none";
+};
+
+// ================= TOGGLE MORE IMAGES =================
+window.toggleMoreImages = function(btn) {
+    const gallery = btn.closest('.listing-media-gallery');
+    const hiddenImages = gallery.querySelectorAll('.hidden-image');
+    const isExpanded = btn.dataset.expanded === 'true';
+    
+    if (isExpanded) {
+        hiddenImages.forEach(img => img.style.display = 'none');
+        const count = hiddenImages.length;
+        btn.innerHTML = `<i class="fas fa-images"></i> Show ${count} more`;
+        btn.dataset.expanded = 'false';
+    } else {
+        hiddenImages.forEach(img => img.style.display = 'block');
+        btn.innerHTML = `<i class="fas fa-chevron-up"></i> Show less`;
+        btn.dataset.expanded = 'true';
+    }
 };
 
 window.onclick = function(event) {
-    const modal = document.getElementById('imageModal');
+    const modal = $('imageModal');
     if (event.target === modal) {
         modal.style.display = "none";
     }
@@ -2434,6 +3360,12 @@ window.onclick = function(event) {
 
 // ================= AUTHENTICATION & INITIALIZATION =================
 document.addEventListener('DOMContentLoaded', () => {
+    // Cache DOM elements first
+    cacheDOMElements();
+    
+    // Setup network monitoring for resilience
+    setupNetworkMonitoring();
+    
     initializeCategoryDropdown();
     
     // Initialize other searchable dropdowns
@@ -2446,7 +3378,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Smooth scroll to first form input on page load
     setTimeout(() => {
-        const firstFormGroup = document.querySelector('.form-step.active .form-group');
+        const firstFormGroup = $q('.form-step.active .form-group');
         if (firstFormGroup) {
             firstFormGroup.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
@@ -2463,20 +3395,20 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (userDoc.exists()) {
                 const userData = userDoc.data();
-                document.getElementById("profile-pic").src = userData.profilePicUrl || "";
-                document.getElementById("seller-name").textContent = `Name: ${userData.name || "Unknown"}`;
-                document.getElementById("seller-email").textContent = `Email: ${userData.email || "Unknown"}`;
-                document.getElementById("seller-location").textContent = `Location: ${userData.county || "Unknown"}, ${userData.ward || "Unknown"}`;
+                $("profile-pic").src = userData.profilePicUrl || "";
+                $("seller-name").textContent = `Name: ${userData.name || "Unknown"}`;
+                $("seller-email").textContent = `Email: ${userData.email || "Unknown"}`;
+                $("seller-location").textContent = `Location: ${userData.county || "Unknown"}, ${userData.ward || "Unknown"}`;
                 
                 if (!userData.profilePicUrl || !userData.name || !userData.email || !userData.county || !userData.ward) {
-                    document.getElementById("profile-incomplete-message").style.display = 'block';
+                    $("profile-incomplete-message").style.display = 'block';
                     setTimeout(() => {
                         window.location.href = 'profile.html';
                     }, 5000);
                     return;
                 }
             } else {
-                document.getElementById("profile-incomplete-message").style.display = 'block';
+                $("profile-incomplete-message").style.display = 'block';
                 setTimeout(() => {
                     window.location.href = 'profile.html';
                 }, 5000);

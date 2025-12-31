@@ -1988,4 +1988,647 @@ select.searchable-select-hidden {
     .searchable-dropdown .dropdown-menu {
         max-height: 250px;
     }
+    
+    /* Mobile variation options - better spacing */
+    .quick-add-chips {
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    
+    .suggestion-chip {
+        padding: 10px 14px;
+        font-size: 13px;
+        flex: 0 0 auto;
+        min-width: 80px;
+        text-align: center;
+        justify-content: center;
+    }
+    
+    /* Better mobile attribute grid */
+    .attribute-fields-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+    }
+    
+    .attr-field {
+        min-width: 0;
+    }
+    
+    .attr-field input {
+        font-size: 14px;
+        padding: 10px;
+    }
+    
+    .attr-image-field {
+        grid-column: span 2;
+        justify-self: center;
+    }
+    
+    .image-upload-mini {
+        width: 60px;
+        height: 60px;
+    }
+    
+    .attribute-badge {
+        font-size: 10px;
+        padding: 4px 8px;
+        min-width: auto;
+    }
+}
+
+@media (max-width: 480px) {
+    /* Even smaller screens */
+    .attribute-fields-grid {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+    
+    .attr-image-field {
+        grid-column: span 1;
+        justify-self: start;
+    }
+    
+    .suggestion-chip {
+        padding: 8px 12px;
+        font-size: 12px;
+        min-width: 70px;
+    }
+    
+    .quick-add-chips {
+        gap: 6px;
+    }
+}
+
+/* ================= REVIEW GRID STYLES ================= */
+.review-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.review-item {
+    background: white;
+    padding: 14px 16px;
+    border-radius: 10px;
+    border-left: 4px solid var(--carrot-orange);
+}
+
+.review-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-light);
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+
+.review-label i {
+    color: var(--carrot-orange);
+    font-size: 11px;
+}
+
+.review-value {
+    font-size: 15px;
+    color: var(--text-dark);
+    font-weight: 500;
+}
+
+.review-description,
+.review-variations,
+.review-bulk {
+    background: white;
+    padding: 16px;
+    border-radius: 10px;
+    margin-bottom: 16px;
+}
+
+.review-description .review-label,
+.review-variations .review-label,
+.review-bulk .review-label {
+    margin-bottom: 12px;
+}
+
+.review-description p {
+    color: var(--text-medium);
+    line-height: 1.6;
+    margin: 0;
+}
+
+@media (max-width: 768px) {
+    .review-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ================= UPLOAD PREVIEW STYLES ================= */
+.listing-uploading {
+    position: relative;
+    border: 2px dashed var(--carrot-orange);
+    animation: pulse-border 2s ease-in-out infinite;
+}
+
+@keyframes pulse-border {
+    0%, 100% { border-color: var(--carrot-orange); }
+    50% { border-color: var(--carrot-orange-light); }
+}
+
+.upload-status-banner {
+    background: linear-gradient(135deg, #ff5722 0%, #e64a19 100%);
+    color: white;
+    padding: 10px 16px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.upload-status-banner i {
+    font-size: 16px;
+}
+
+/* ================= LISTING STOCK BADGE ================= */
+.listing-stock-badge {
+    background: var(--carrot-orange);
+    color: white;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+/* ================= VARIATIONS QUICK EDIT ================= */
+.variations-quick-edit {
+    margin-top: 16px;
+}
+
+.variation-quick-edit-group {
+    background: var(--bg-light);
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 12px;
+}
+
+.variation-quick-edit-group h6 {
+    margin: 0 0 12px 0;
+    color: var(--text-dark);
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.variation-quick-edit-group h6 i {
+    color: var(--carrot-orange);
+}
+
+.variation-options-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+}
+
+.variation-option-edit {
+    background: white;
+    border-radius: 8px;
+    padding: 12px;
+    border: 2px solid var(--border-color);
+    transition: border-color 0.3s;
+}
+
+.variation-option-edit:hover {
+    border-color: var(--carrot-orange-light);
+}
+
+.option-name {
+    font-weight: 600;
+    color: var(--text-dark);
+    display: block;
+    margin-bottom: 10px;
+    font-size: 14px;
+}
+
+.option-fields {
+    display: flex;
+    gap: 10px;
+}
+
+.mini-field {
+    flex: 1;
+}
+
+.mini-field label {
+    font-size: 11px;
+    color: var(--text-light);
+    margin-bottom: 4px;
+    display: block;
+}
+
+.mini-field input {
+    width: 100%;
+    padding: 8px 10px;
+    border: 2px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.mini-field input:focus {
+    border-color: var(--carrot-orange);
+    outline: none;
+}
+
+.save-variations-btn {
+    width: 100%;
+    background: var(--success-green);
+    color: white;
+    border: none;
+    padding: 14px;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.3s;
+}
+
+.save-variations-btn:hover {
+    background: #388e3c;
+    transform: translateY(-2px);
+}
+
+.save-variations-btn:disabled {
+    background: #9e9e9e;
+    cursor: not-allowed;
+    transform: none;
+}
+
+/* Quick Edit Header with Toggle */
+.quick-edit-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.toggle-quick-edit-btn {
+    background: var(--bg-light);
+    border: none;
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s;
+}
+
+.toggle-quick-edit-btn:hover {
+    background: var(--carrot-orange-pale);
+}
+
+.toggle-quick-edit-btn i {
+    color: var(--text-medium);
+    font-size: 14px;
+}
+
+/* ================= BRAND SUGGESTIONS ================= */
+.brand-suggestions-container {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: white;
+    border: 2px solid var(--carrot-orange);
+    border-top: none;
+    border-radius: 0 0 10px 10px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+    z-index: 100;
+    display: none;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.brand-suggestion-header {
+    padding: 10px 14px;
+    background: var(--bg-light);
+    font-size: 12px;
+    color: var(--text-medium);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.brand-suggestion-header i {
+    color: var(--carrot-orange);
+}
+
+.brand-suggestion-item {
+    padding: 12px 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    transition: background 0.2s;
+    border-bottom: 1px solid var(--bg-light);
+}
+
+.brand-suggestion-item:hover {
+    background: var(--carrot-orange-pale);
+}
+
+.brand-suggestion-item i {
+    color: var(--carrot-orange);
+}
+
+.brand-suggestion-note {
+    padding: 10px 14px;
+    font-size: 11px;
+    color: var(--text-light);
+    background: var(--bg-light);
+    text-align: center;
+}
+
+.brand-suggestion-info {
+    padding: 12px 14px;
+    font-size: 13px;
+    color: #2e7d32;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.brand-suggestion-warning {
+    padding: 12px 14px;
+    font-size: 13px;
+    color: #e65100;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #fff3e0;
+}
+
+/* Custom brand group positioning for suggestions */
+#custom-brand-group {
+    position: relative;
+}
+
+/* ================= LISTING MEDIA GALLERY ================= */
+.listing-media-gallery {
+    margin-bottom: 16px;
+}
+
+.listing-media-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+}
+
+.listing-media-grid .listing-img {
+    width: 100%;
+    height: 70px;
+    object-fit: cover;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: transform 0.3s ease;
+    border: 2px solid var(--border-color);
+}
+
+.listing-media-grid .listing-img:hover {
+    transform: scale(1.05);
+    border-color: var(--carrot-orange);
+}
+
+.listing-media-grid .hidden-image {
+    display: none;
+}
+
+.show-more-images-btn {
+    width: 100%;
+    margin-top: 8px;
+    padding: 8px 16px;
+    background: var(--bg-light);
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-medium);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.3s;
+}
+
+.show-more-images-btn:hover {
+    background: var(--carrot-orange-pale);
+    border-color: var(--carrot-orange);
+    color: var(--carrot-orange);
+}
+
+/* ================= MOBILE RESPONSIVE FIXES ================= */
+@media (max-width: 768px) {
+    /* Listing cards */
+    .listing {
+        padding: 16px;
+    }
+    
+    .listing-header {
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .listing-stock-badge {
+        align-self: flex-start;
+    }
+    
+    /* Smaller delete button */
+    .listing-actions {
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+    
+    .edit-btn, .delete-btn {
+        padding: 10px 16px;
+        font-size: 13px;
+        flex: 1;
+        min-width: 100px;
+    }
+    
+    .delete-btn {
+        background: #ef5350;
+    }
+    
+    /* Image gallery - 2 columns on tablet */
+    .listing-media-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .listing-media-grid .listing-img {
+        height: 60px;
+    }
+    
+    /* Variations quick edit */
+    .variation-options-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .variation-option-edit {
+        padding: 10px;
+    }
+    
+    .option-fields {
+        flex-direction: row;
+        gap: 8px;
+    }
+    
+    .mini-field input {
+        padding: 6px 8px;
+        font-size: 13px;
+    }
+}
+
+@media (max-width: 480px) {
+    /* Even smaller on phones */
+    .listing {
+        padding: 12px;
+    }
+    
+    .listing h4 {
+        font-size: 1.1em;
+    }
+    
+    /* Compact action buttons */
+    .listing-actions {
+        gap: 8px;
+    }
+    
+    .edit-btn, .delete-btn {
+        padding: 8px 12px;
+        font-size: 12px;
+    }
+    
+    /* Image gallery - 4 small thumbnails */
+    .listing-media-grid {
+        grid-template-columns: repeat(4, 1fr);
+        gap: 4px;
+    }
+    
+    .listing-media-grid .listing-img {
+        height: 50px;
+        border-radius: 6px;
+        border-width: 1px;
+    }
+    
+    .show-more-images-btn {
+        padding: 6px 12px;
+        font-size: 11px;
+    }
+    
+    /* Fix variation attribute item squishing */
+    .attribute-item {
+        padding: 12px;
+    }
+    
+    .attribute-header-row {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+    
+    .attribute-badge {
+        align-self: flex-start;
+        font-size: 10px;
+        padding: 3px 8px;
+    }
+    
+    .attribute-header-row .attribute-name {
+        order: unset;
+        width: 100%;
+        margin-top: 0;
+        padding: 8px 12px;
+        font-size: 14px;
+    }
+    
+    .attribute-header-row .remove-attribute-btn {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 28px;
+        height: 28px;
+        order: unset;
+    }
+    
+    .attribute-item {
+        position: relative;
+        padding-top: 40px;
+    }
+    
+    /* Attribute fields grid */
+    .attribute-fields-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+    
+    .attr-field input,
+    .attr-field select {
+        padding: 8px 10px;
+        font-size: 13px;
+    }
+    
+    .attr-field label {
+        font-size: 11px;
+    }
+    
+    /* Quick edit section */
+    .quick-edit-section {
+        padding: 12px;
+    }
+    
+    .quick-edit-section h5 {
+        font-size: 14px;
+    }
+    
+    .variation-quick-edit-group {
+        padding: 12px;
+    }
+    
+    .variation-quick-edit-group h6 {
+        font-size: 13px;
+    }
+    
+    .option-name {
+        font-size: 13px;
+        margin-bottom: 8px;
+    }
+    
+    .option-fields {
+        gap: 6px;
+    }
+    
+    .mini-field label {
+        font-size: 10px;
+    }
+    
+    .mini-field input {
+        padding: 6px;
+        font-size: 12px;
+    }
+    
+    .save-variations-btn {
+        padding: 10px;
+        font-size: 13px;
+    }
 }

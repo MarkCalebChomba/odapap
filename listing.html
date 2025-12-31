@@ -67,12 +67,12 @@
             </div>
             <div class="progress-step" data-step="4">
                 <div class="step-circle">4</div>
-                <div class="step-label">Pricing</div>
+                <div class="step-label">Review</div>
             </div>
         </div>
 
         <!-- Form Steps -->
-        <form id="item-listing-form">
+        <form id="item-listing-form" novalidate>
             <!-- Step 1: Classification & Brand -->
             <div class="form-step active" data-step="1">
                 <div class="step-card">
@@ -97,7 +97,7 @@
 
                     <div class="form-group" id="subsubcategory-group" style="display: none;">
                         <label for="subsubcategory"><i class="fas fa-tag"></i> Specific Type *</label>
-                        <select id="subsubcategory" name="subsubcategory" required disabled>
+                        <select id="subsubcategory" name="subsubcategory" disabled>
                             <option value="">Select specific type</option>
                         </select>
                         <small>★ marked items were added by other sellers</small>
@@ -111,7 +111,7 @@
 
                     <div class="form-group">
                         <label for="brand-name"><i class="fas fa-certificate"></i> Brand Name *</label>
-                        <select id="brand-name" required>
+                        <select id="brand-name" name="brand-name">
                             <option value="">Select brand</option>
                         </select>
                         <small>★ marked brands were added by other sellers</small>
@@ -212,23 +212,11 @@
                 </div>
             </div>
 
-            <!-- Step 4: Pricing & Tiers -->
+            <!-- Step 4: Review & Submit -->
             <div class="form-step" data-step="4">
                 <div class="step-card">
-                    <h2><i class="fas fa-tag"></i> Pricing & Review</h2>
-                    <p class="step-description">Set competitive prices and offer bulk discounts to attract larger orders</p>
-
-                    <div class="form-group">
-                        <label for="item-price"><i class="fas fa-money-bill"></i> Base Price per Unit (KES) *</label>
-                        <input type="number" id="item-price" placeholder="e.g., 1200" step="0.01" required>
-                        <small>Your wholesale price - a small platform fee will be added</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="initial-price"><i class="fas fa-percent"></i> Original Retail Price (Optional)</label>
-                        <input type="number" id="initial-price" placeholder="e.g., 2000" step="0.01">
-                        <small>Show buyers the savings compared to retail price</small>
-                    </div>
+                    <h2><i class="fas fa-clipboard-check"></i> Review & Submit</h2>
+                    <p class="step-description">Review your listing details before publishing</p>
 
                     <div class="bulk-pricing-section">
                         <div class="bulk-header">
@@ -246,6 +234,10 @@
                             </button>
                         </div>
                     </div>
+
+                    <!-- Hidden fields for compatibility -->
+                    <input type="hidden" id="item-price" value="0">
+                    <input type="hidden" id="initial-price" value="">
 
                     <div class="review-section">
                         <h3><i class="fas fa-clipboard-check"></i> Review Your Listing</h3>
