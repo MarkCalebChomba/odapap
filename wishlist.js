@@ -1,5 +1,5 @@
 import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
-import { getFirestore, collection, doc, getDocs, deleteDoc, addDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+import { getFirestore, collection, doc, getDocs, deleteDoc, addDoc, getDoc, query, where } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
 import { app } from './js/firebase.js';
 import { showNotification } from './notifications.js';
 
@@ -9,15 +9,52 @@ const firestore = getFirestore(app);
 
 // Get references to the DOM elements
 const wishlistItemsContainer = document.getElementById('wishlist-items');
-const wishlistIcon = document.getElementById('wishlist-icon');
+const emptyState = document.getElementById('emptyState');
 
-// Function to update wishlist icon with item count
-const updateWishlistIcon = (count) => {
-    const notification = document.createElement('span');
-    notification.className = 'cart-notification';
-    notification.textContent = count;
-    wishlistIcon.appendChild(notification);
-};
+// Search functionality
+const searchInput = document.getElementById('searchInput');
+if (searchInput) {
+    searchInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            const searchQuery = searchInput.value.trim();
+            if (searchQuery) {
+                window.location.href = `search-results.html?q=${encodeURIComponent(searchQuery)}`;
+            }
+        }
+    });
+}
+
+// Update nav counters
+async function updateNavCounters(userId) {
+    try {
+        // Wishlist count
+        const wishlistSnapshot = await getDocs(collection(firestore, `users/${userId}/wishlist`));
+        const wishlistCounter = document.getElementById('wishlistCounter');
+        if (wishlistCounter) {
+            wishlistCounter.textContent = wishlistSnapshot.size;
+        }
+        
+        // Cart count
+        const cartSnapshot = await getDocs(collection(firestore, `users/${userId}/cart`));
+        const cartCounter = document.getElementById('cartCounter');
+        if (cartCounter) {
+            cartCounter.textContent = cartSnapshot.size;
+        }
+        
+        // Notification count
+        const notifQuery = query(
+            collection(firestore, `users/${userId}/notifications`),
+            where('read', '==', false)
+        );
+        const notifSnapshot = await getDocs(notifQuery);
+        const notifCounter = document.getElementById('notificationCounter');
+        if (notifCounter) {
+            notifCounter.textContent = notifSnapshot.size;
+        }
+    } catch (error) {
+        console.error('Error updating counters:', error);
+    }
+}
 
 // Function to load wishlist items from Firestore
 const loadWishlistItems = async (user) => {
@@ -27,49 +64,97 @@ const loadWishlistItems = async (user) => {
     }
     try {
         const wishlistItemsSnapshot = await getDocs(collection(firestore, `users/${user.uid}/wishlist`));
-        let itemCount = 0;
         wishlistItemsContainer.innerHTML = '';
 
         if (wishlistItemsSnapshot.empty) {
-            wishlistItemsContainer.innerHTML = '<p>Your wishlist is empty.</p>';
-            updateWishlistIcon(0);
+            wishlistItemsContainer.style.display = 'none';
+            if (emptyState) emptyState.style.display = 'block';
             return;
         }
 
-        wishlistItemsSnapshot.forEach(doc => {
-            const item = doc.data();
-            itemCount += 1;
+        wishlistItemsContainer.style.display = 'grid';
+        if (emptyState) emptyState.style.display = 'none';
+
+        wishlistItemsSnapshot.forEach(docSnap => {
+            const item = docSnap.data();
+            const imageUrl = item.imageUrls?.[0] || item.photoUrl || item.imageUrl || 'images/product-placeholder.png';
+            const price = item.price || 0;
+            const originalPrice = item.originalPrice || item.retailPrice;
+            
             const wishlistItemElement = document.createElement('div');
             wishlistItemElement.className = 'wishlist-item';
             wishlistItemElement.innerHTML = `
-                <img src="${item.imageUrls[0]}" alt="${item.name}" class="wishlist-item-image">
+                <img src="${imageUrl}" alt="${item.name}" class="wishlist-item-image" 
+                     onclick="window.location.href='product.html?id=${item.listingId}'"
+                     onerror="this.src='images/product-placeholder.png'">
                 <div class="wishlist-item-details">
-                    <p><strong>${item.name}</strong></p>
-                    <p>Price: Kes${item.price.toFixed(2)}</p>
-                    <button class="remove-button" data-id="${doc.id}">Remove</button>
+                    <h3 onclick="window.location.href='product.html?id=${item.listingId}'">${item.name || 'Product'}</h3>
+                    <p class="brand">${item.brand || ''}</p>
+                    <p class="price">KES ${price.toLocaleString()}</p>
+                    ${originalPrice ? `<p class="original-price">KES ${originalPrice.toLocaleString()}</p>` : ''}
+                    <div class="wishlist-actions">
+                        <button class="add-to-cart-btn" onclick="addToCart('${docSnap.id}', '${item.listingId}')">
+                            <i class="fas fa-shopping-cart"></i> Add to Cart
+                        </button>
+                        <button class="remove-button" data-id="${docSnap.id}">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
                 </div>
             `;
-            wishlistItemElement.addEventListener('click', (event) => {
-                if (!event.target.classList.contains('remove-button')) {
-                    window.location.href = `product.html?id=${item.listingId}`;
-                }
-            });
             wishlistItemsContainer.appendChild(wishlistItemElement);
         });
 
-        updateWishlistIcon(itemCount);
     } catch (error) {
         console.error('Error loading wishlist items:', error);
+        showNotification('Error loading wishlist', 'error');
+    }
+};
+
+// Add to cart function
+window.addToCart = async function(wishlistItemId, listingId) {
+    const user = auth.currentUser;
+    if (!user) {
+        showNotification('Please log in first', 'error');
+        return;
+    }
+    
+    try {
+        // Get item data from wishlist
+        const wishlistDoc = await getDoc(doc(firestore, `users/${user.uid}/wishlist/${wishlistItemId}`));
+        if (!wishlistDoc.exists()) {
+            showNotification('Item not found', 'error');
+            return;
+        }
+        
+        const itemData = wishlistDoc.data();
+        
+        // Add to cart
+        await addDoc(collection(firestore, `users/${user.uid}/cart`), {
+            listingId: listingId,
+            name: itemData.name,
+            brand: itemData.brand,
+            price: itemData.price,
+            imageUrls: itemData.imageUrls,
+            photoUrl: itemData.photoUrl || itemData.imageUrls?.[0],
+            quantity: 1,
+            addedAt: new Date()
+        });
+        
+        showNotification('Added to cart!');
+        updateNavCounters(user.uid);
+    } catch (error) {
+        console.error('Error adding to cart:', error);
+        showNotification('Failed to add to cart', 'error');
     }
 };
 
 // Add an auth state observer to check user login status
 onAuthStateChanged(auth, (user) => {
     if (user) {
-        // Load wishlist items when the user is logged in
         loadWishlistItems(user);
+        updateNavCounters(user.uid);
     } else {
-        // Redirect to login page if not logged in
         showNotification('You must be logged in to view your wishlist.');
         window.location.href = 'login.html';
     }
@@ -77,21 +162,25 @@ onAuthStateChanged(auth, (user) => {
 
 // Function to remove an item from the wishlist
 wishlistItemsContainer.addEventListener('click', async (event) => {
-    if (event.target.classList.contains('remove-button')) {
-        const itemId = event.target.getAttribute('data-id');
+    if (event.target.classList.contains('remove-button') || event.target.closest('.remove-button')) {
+        const btn = event.target.closest('.remove-button') || event.target;
+        const itemId = btn.getAttribute('data-id');
         const user = auth.currentUser;
-        if (user) {
+        if (user && itemId) {
             try {
                 await deleteDoc(doc(firestore, `users/${user.uid}/wishlist/${itemId}`));
-                loadWishlistItems(user); // Reload wishlist items after removal
+                showNotification('Removed from wishlist');
+                loadWishlistItems(user);
+                updateNavCounters(user.uid);
             } catch (error) {
                 console.error('Error removing wishlist item:', error);
+                showNotification('Error removing item', 'error');
             }
         }
     }
 });
 
-// Function to add item to wishlist
+// Function to add item to wishlist (exported for other pages)
 window.addToWishlist = async function (listingId) {
     const user = auth.currentUser;
     if (user) {
@@ -106,7 +195,8 @@ window.addToWishlist = async function (listingId) {
                 ...listing
             });
             showNotification('Item added to wishlist!');
-            loadWishlistItems(user); // Reload wishlist items after adding new item
+            loadWishlistItems(user);
+            updateNavCounters(user.uid);
         } catch (error) {
             console.error('Error adding item to wishlist:', error);
             showNotification('Failed to add item to wishlist. Please try again.');

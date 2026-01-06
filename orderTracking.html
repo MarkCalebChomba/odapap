@@ -13,27 +13,47 @@
     <header>
         <div class="top-bar">
             <div class="logo-container">
-                <img src="images/logo.jpg" alt="Oda Pap Logo" class="logo">
-                <span class="logo-text">Oda Pap</span>
+                <a href="index.html">
+                    <img src="images/logo.jpg" alt="Oda Pap Logo" class="logo">
+                    <span class="logo-text">Oda Pap</span>
+                </a>
             </div>
-            <button onclick="window.history.back()" class="back-button">
-                <i class="fas fa-arrow-left"></i> Back
-            </button>
+            <div class="search-container">
+                <i class="fas fa-search search-icon"></i>
+                <input type="text" id="searchInput" placeholder="Search products...">
+            </div>
+            <nav class="nav-icons">
+                <button class="nav-btn" onclick="window.location.href='wishlist.html'" title="Wishlist">
+                    <i class="fas fa-heart"></i>
+                    <span class="nav-counter" id="wishlistCounter">0</span>
+                </button>
+                <button class="nav-btn" onclick="window.location.href='cart.html'" title="Cart">
+                    <i class="fas fa-shopping-cart"></i>
+                    <span class="nav-counter" id="cartCounter">0</span>
+                </button>
+                <button class="nav-btn" onclick="window.location.href='notification.html'" title="Notifications">
+                    <i class="fas fa-bell"></i>
+                    <span class="nav-counter" id="notificationCounter">0</span>
+                </button>
+                <button class="nav-btn" onclick="window.location.href='user.html'" title="Profile">
+                    <i class="fas fa-user"></i>
+                </button>
+            </nav>
         </div>
     </header>
 
     <main>
         <div class="page-header">
             <h1><i class="fas fa-box"></i> Order Tracking</h1>
-            <p>Track your orders and manage payments</p>
+            <p>Track your orders and manage deliveries</p>
         </div>
 
         <div class="order-tracking-container">
             <div class="filter-tabs">
                 <button class="tab-btn active" data-filter="all">All Orders</button>
                 <button class="tab-btn" data-filter="pending">Pending</button>
-                <button class="tab-btn" data-filter="unpaid">Unpaid</button>
-                <button class="tab-btn" data-filter="undelivered">In Transit</button>
+                <button class="tab-btn" data-filter="confirmed">Confirmed</button>
+                <button class="tab-btn" data-filter="out_for_delivery">In Transit</button>
                 <button class="tab-btn" data-filter="delivered">Delivered</button>
             </div>
 
@@ -49,6 +69,47 @@
             </div>
         </div>
     </main>
+
+    <!-- Order Detail Modal -->
+    <div id="orderDetailModal" class="modal" style="display: none;">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>Order Details</h2>
+                <button class="close-btn" onclick="closeOrderDetailModal()">×</button>
+            </div>
+            <div class="modal-body" id="orderDetailContent">
+                <!-- Order details will be inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Review Modal -->
+    <div id="reviewModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2><i class="fas fa-star"></i> Rate Your Order</h2>
+                <button class="close-btn" onclick="closeReviewModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="review-product-info" id="reviewProductInfo"></div>
+                <div class="star-rating" id="starRating">
+                    <i class="fas fa-star" data-rating="1"></i>
+                    <i class="fas fa-star" data-rating="2"></i>
+                    <i class="fas fa-star" data-rating="3"></i>
+                    <i class="fas fa-star" data-rating="4"></i>
+                    <i class="fas fa-star" data-rating="5"></i>
+                </div>
+                <p class="rating-text" id="ratingText">Select a rating</p>
+                <textarea id="reviewText" placeholder="Write your review (optional)..." rows="4"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button onclick="submitReview()" class="btn-primary">
+                    <i class="fas fa-check"></i> Submit Review
+                </button>
+                <button onclick="closeReviewModal()" class="btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
 
     <div id="repayModal" class="modal" style="display: none;">
         <div class="modal-content">
@@ -75,60 +136,86 @@
 
     <script type="module">
         import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
-        import { getFirestore, collection, query, where, getDocs, doc, getDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+        import { getFirestore, collection, query, where, getDocs, doc, getDoc, addDoc, updateDoc, Timestamp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
         import { app } from "./js/firebase.js";
         import { showNotification } from './notifications.js';
+        import { updateNavCounters } from './js/utils.js';
 
         const auth = getAuth(app);
         const db = getFirestore(app);
         let currentFilter = 'all';
         let selectedOrder = null;
+        let selectedRating = 0;
+        let allOrders = [];
 
         // Status configuration
         const statusConfig = {
-            pending: { label: 'Pending', icon: 'hourglass-half', color: '#ff9800' },
-            unpaid: { label: 'Unpaid', icon: 'credit-card', color: '#f44336' },
-            undelivered: { label: 'In Transit', icon: 'truck', color: '#2196F3' },
-            delivered: { label: 'Delivered', icon: 'check-circle', color: '#4CAF50' }
+            pending: { label: 'Pending', icon: 'hourglass-half', color: '#ff9800', step: 1 },
+            confirmed: { label: 'Confirmed', icon: 'check', color: '#2196F3', step: 2 },
+            out_for_delivery: { label: 'Out for Delivery', icon: 'truck', color: '#9c27b0', step: 3 },
+            delivered: { label: 'Delivered', icon: 'check-circle', color: '#4CAF50', step: 4 },
+            cancelled: { label: 'Cancelled', icon: 'times-circle', color: '#f44336', step: 0 }
         };
 
-        // Load orders from checkout collection
+        const ratingTexts = {
+            1: 'Poor',
+            2: 'Fair',
+            3: 'Good',
+            4: 'Very Good',
+            5: 'Excellent'
+        };
+
+        // Search functionality
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) {
+            searchInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    const query = searchInput.value.trim();
+                    if (query) {
+                        window.location.href = `search-results.html?q=${encodeURIComponent(query)}`;
+                    }
+                }
+            });
+        }
+
+        // Load orders from Orders collection
         async function loadOrders() {
             const user = auth.currentUser;
             if (!user) return;
 
             try {
-                const ordersRef = collection(db, 'users', user.uid, 'checkout');
-                const snapshot = await getDocs(ordersRef);
-                const orders = [];
+                const ordersRef = collection(db, 'Orders');
+                const ordersQuery = query(ordersRef, where('userId', '==', user.uid));
+                const snapshot = await getDocs(ordersQuery);
+                allOrders = [];
 
-                for (const doc of snapshot.docs) {
-                    const order = doc.data();
-                    orders.push({
-                        id: doc.id,
+                for (const docSnap of snapshot.docs) {
+                    const order = docSnap.data();
+                    allOrders.push({
+                        id: docSnap.id,
                         ...order,
-                        createdAt: order.createdAt || new Date().toISOString()
+                        createdAt: order.createdAt?.toDate?.() || new Date(order.createdAt) || new Date()
                     });
                 }
 
                 // Sort by date (newest first)
-                orders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                allOrders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-                displayOrders(orders);
+                displayOrders(allOrders);
             } catch (error) {
                 console.error('Error loading orders:', error);
                 showNotification('Failed to load orders', 'error');
             }
         }
 
-        function displayOrders(allOrders) {
+        function displayOrders(orders) {
             const ordersList = document.getElementById('ordersList');
             const emptyState = document.getElementById('emptyState');
 
             // Filter orders
-            let filteredOrders = allOrders;
+            let filteredOrders = orders;
             if (currentFilter !== 'all') {
-                filteredOrders = allOrders.filter(order => {
+                filteredOrders = orders.filter(order => {
                     const status = order.status || 'pending';
                     return status === currentFilter;
                 });
@@ -145,13 +232,18 @@
 
             filteredOrders.forEach(order => {
                 const status = order.status || 'pending';
-                const config = statusConfig[status];
+                const config = statusConfig[status] || statusConfig.pending;
                 const orderDate = new Date(order.createdAt);
                 const formattedDate = orderDate.toLocaleDateString('en-US', { 
                     year: 'numeric', 
                     month: 'short', 
                     day: 'numeric' 
                 });
+
+                // Get first item for display
+                const firstItem = order.items?.[0] || order;
+                const itemCount = order.items?.length || 1;
+                const totalAmount = order.totalAmount || order.total || (firstItem.price * (firstItem.quantity || 1));
 
                 const card = document.createElement('div');
                 card.className = 'order-card';
@@ -169,33 +261,239 @@
 
                     <div class="order-items">
                         <div class="item">
-                            <img src="${order.photoTraceUrl || (order.imageUrls && order.imageUrls[0]) || 'images/product-placeholder.png'}" 
-                                 alt="${order.name}">
+                            <img src="${firstItem.photoUrl || firstItem.imageUrl || (firstItem.imageUrls && firstItem.imageUrls[0]) || 'images/product-placeholder.png'}" 
+                                 alt="${firstItem.name}" onerror="this.src='images/product-placeholder.png'">
                             <div class="item-details">
-                                <h4>${order.name}</h4>
-                                <p class="brand">${order.brand || 'Unknown'}</p>
-                                <p class="quantity">Qty: ${order.quantity || 1}</p>
+                                <h4>${firstItem.name || 'Product'}</h4>
+                                <p class="brand">${firstItem.brand || ''}</p>
+                                <p class="quantity">Qty: ${firstItem.quantity || 1}${itemCount > 1 ? ` (+${itemCount - 1} more items)` : ''}</p>
                             </div>
                             <div class="item-price">
-                                <p class="price">KES ${(order.price * (order.quantity || 1)).toLocaleString()}</p>
+                                <p class="price">KES ${totalAmount.toLocaleString()}</p>
                             </div>
                         </div>
                     </div>
 
+                    <!-- Order Timeline -->
+                    <div class="order-timeline">
+                        ${generateTimeline(status)}
+                    </div>
+
                     <div class="order-footer">
-                        ${status === 'unpaid' ? `
-                            <button class="btn-repay" onclick="openRepayModal('${order.id}', '${order.name}', ${order.price * (order.quantity || 1)})">
-                                <i class="fas fa-redo"></i> Repay
+                        <button class="btn-view-details" onclick="viewOrderDetails('${order.id}')">
+                            <i class="fas fa-eye"></i> View Details
+                        </button>
+                        ${status === 'delivered' && !order.reviewed ? `
+                            <button class="btn-review" onclick="openReviewModal('${order.id}')">
+                                <i class="fas fa-star"></i> Leave Review
                             </button>
                         ` : ''}
-                        <button class="btn-view-details" onclick="window.location.href='product.html?id=${order.listingId || ''}'">
-                            View Product
-                        </button>
+                        ${status === 'delivered' && order.reviewed ? `
+                            <span class="reviewed-badge"><i class="fas fa-check-circle"></i> Reviewed</span>
+                        ` : ''}
                     </div>
                 `;
                 ordersList.appendChild(card);
             });
         }
+
+        function generateTimeline(currentStatus) {
+            const steps = [
+                { status: 'pending', label: 'Pending', icon: 'hourglass-half' },
+                { status: 'confirmed', label: 'Confirmed', icon: 'check' },
+                { status: 'out_for_delivery', label: 'In Transit', icon: 'truck' },
+                { status: 'delivered', label: 'Delivered', icon: 'check-circle' }
+            ];
+
+            const currentStep = statusConfig[currentStatus]?.step || 1;
+            if (currentStatus === 'cancelled') {
+                return `<div class="timeline-cancelled"><i class="fas fa-times-circle"></i> Order Cancelled</div>`;
+            }
+
+            return `<div class="timeline">
+                ${steps.map((step, index) => {
+                    const stepNum = index + 1;
+                    const isComplete = stepNum < currentStep;
+                    const isCurrent = stepNum === currentStep;
+                    return `
+                        <div class="timeline-step ${isComplete ? 'complete' : ''} ${isCurrent ? 'current' : ''}">
+                            <div class="step-icon">
+                                <i class="fas fa-${step.icon}"></i>
+                            </div>
+                            <span class="step-label">${step.label}</span>
+                        </div>
+                        ${index < steps.length - 1 ? `<div class="timeline-line ${isComplete ? 'complete' : ''}"></div>` : ''}
+                    `;
+                }).join('')}
+            </div>`;
+        }
+
+        // View order details modal
+        window.viewOrderDetails = async function(orderId) {
+            const order = allOrders.find(o => o.id === orderId);
+            if (!order) return;
+
+            const status = order.status || 'pending';
+            const config = statusConfig[status] || statusConfig.pending;
+            const items = order.items || [order];
+            const totalAmount = order.totalAmount || order.total || items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
+
+            const content = document.getElementById('orderDetailContent');
+            content.innerHTML = `
+                <div class="order-detail-info">
+                    <div class="detail-row">
+                        <span class="detail-label">Order ID:</span>
+                        <span>#${order.id.slice(-8).toUpperCase()}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Status:</span>
+                        <span class="status-badge" style="background: ${config.color}20; color: ${config.color}">
+                            <i class="fas fa-${config.icon}"></i> ${config.label}
+                        </span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Order Date:</span>
+                        <span>${new Date(order.createdAt).toLocaleString()}</span>
+                    </div>
+                    ${order.deliveredAt ? `
+                        <div class="detail-row">
+                            <span class="detail-label">Delivered:</span>
+                            <span>${new Date(order.deliveredAt.toDate?.() || order.deliveredAt).toLocaleString()}</span>
+                        </div>
+                    ` : ''}
+                </div>
+
+                <h3>Items</h3>
+                <div class="detail-items">
+                    ${items.map(item => `
+                        <div class="detail-item">
+                            <img src="${item.photoUrl || item.imageUrl || 'images/product-placeholder.png'}" alt="${item.name}">
+                            <div class="detail-item-info">
+                                <h4>${item.name || 'Product'}</h4>
+                                <p>${item.brand || ''}</p>
+                                <p>Qty: ${item.quantity || 1}</p>
+                                ${item.color ? `<p>Color: ${item.color}</p>` : ''}
+                                ${item.size ? `<p>Size: ${item.size}</p>` : ''}
+                            </div>
+                            <div class="detail-item-price">
+                                KES ${((item.price || 0) * (item.quantity || 1)).toLocaleString()}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+
+                <div class="detail-total">
+                    <span>Total Amount:</span>
+                    <span class="total-price">KES ${totalAmount.toLocaleString()}</span>
+                </div>
+
+                ${order.shippingAddress ? `
+                    <h3>Shipping Address</h3>
+                    <div class="shipping-info">
+                        <p><i class="fas fa-user"></i> ${order.shippingAddress.name || 'N/A'}</p>
+                        <p><i class="fas fa-phone"></i> ${order.shippingAddress.phone || 'N/A'}</p>
+                        <p><i class="fas fa-map-marker-alt"></i> ${order.shippingAddress.address || 'N/A'}</p>
+                    </div>
+                ` : ''}
+            `;
+
+            document.getElementById('orderDetailModal').style.display = 'flex';
+        };
+
+        window.closeOrderDetailModal = function() {
+            document.getElementById('orderDetailModal').style.display = 'none';
+        };
+
+        // Review functionality
+        window.openReviewModal = function(orderId) {
+            selectedOrder = allOrders.find(o => o.id === orderId);
+            if (!selectedOrder) return;
+
+            const firstItem = selectedOrder.items?.[0] || selectedOrder;
+            document.getElementById('reviewProductInfo').innerHTML = `
+                <img src="${firstItem.photoUrl || firstItem.imageUrl || 'images/product-placeholder.png'}" alt="${firstItem.name}">
+                <div>
+                    <h4>${firstItem.name || 'Product'}</h4>
+                    <p>Order #${orderId.slice(-8).toUpperCase()}</p>
+                </div>
+            `;
+
+            selectedRating = 0;
+            updateStarDisplay();
+            document.getElementById('reviewText').value = '';
+            document.getElementById('reviewModal').style.display = 'flex';
+        };
+
+        window.closeReviewModal = function() {
+            document.getElementById('reviewModal').style.display = 'none';
+            selectedOrder = null;
+            selectedRating = 0;
+        };
+
+        // Star rating functionality
+        document.querySelectorAll('#starRating i').forEach(star => {
+            star.addEventListener('click', () => {
+                selectedRating = parseInt(star.dataset.rating);
+                updateStarDisplay();
+            });
+            star.addEventListener('mouseover', () => {
+                highlightStars(parseInt(star.dataset.rating));
+            });
+            star.addEventListener('mouseout', () => {
+                updateStarDisplay();
+            });
+        });
+
+        function highlightStars(rating) {
+            document.querySelectorAll('#starRating i').forEach(star => {
+                const starRating = parseInt(star.dataset.rating);
+                star.classList.toggle('active', starRating <= rating);
+            });
+        }
+
+        function updateStarDisplay() {
+            highlightStars(selectedRating);
+            document.getElementById('ratingText').textContent = selectedRating ? ratingTexts[selectedRating] : 'Select a rating';
+        }
+
+        window.submitReview = async function() {
+            if (!selectedOrder || !selectedRating) {
+                showNotification('Please select a rating', 'error');
+                return;
+            }
+
+            const reviewText = document.getElementById('reviewText').value.trim();
+            const user = auth.currentUser;
+            const firstItem = selectedOrder.items?.[0] || selectedOrder;
+
+            try {
+                // Add review to Reviews collection
+                await addDoc(collection(db, 'Reviews'), {
+                    orderId: selectedOrder.id,
+                    userId: user.uid,
+                    userEmail: user.email,
+                    listingId: firstItem.listingId || firstItem.productId,
+                    sellerId: firstItem.sellerId || firstItem.uploaderId,
+                    rating: selectedRating,
+                    review: reviewText,
+                    productName: firstItem.name,
+                    createdAt: Timestamp.now()
+                });
+
+                // Mark order as reviewed
+                await updateDoc(doc(db, 'Orders', selectedOrder.id), {
+                    reviewed: true,
+                    reviewedAt: Timestamp.now()
+                });
+
+                showNotification('Review submitted successfully!');
+                closeReviewModal();
+                loadOrders();
+            } catch (error) {
+                console.error('Error submitting review:', error);
+                showNotification('Failed to submit review', 'error');
+            }
+        };
 
         // Filter tabs functionality
         document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -203,13 +501,12 @@
                 document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 currentFilter = btn.dataset.filter;
-                loadOrders();
+                displayOrders(allOrders);
             });
         });
 
         // Repay modal functions
         window.openRepayModal = function(orderId, productName, amount) {
-            selectedOrder = { orderId, productName, amount };
             document.getElementById('repayOrderDetails').textContent = `Order for: ${productName}`;
             document.getElementById('repayAmount').innerHTML = `<strong>Amount Due: KES ${amount.toLocaleString()}</strong>`;
             document.getElementById('repayModal').style.display = 'flex';
@@ -217,46 +514,92 @@
 
         window.closeRepayModal = function() {
             document.getElementById('repayModal').style.display = 'none';
-            selectedOrder = null;
         };
 
         window.proceedToRepay = function() {
-            if (!selectedOrder) return;
-
-            try {
-                // Store repayment data in cookie
-                const repayData = {
-                    orderId: selectedOrder.orderId,
-                    productName: selectedOrder.productName,
-                    amount: selectedOrder.amount,
-                    isRepayment: true
-                };
-
-                const expires = new Date();
-                expires.setTime(expires.getTime() + (1 * 24 * 60 * 60 * 1000));
-                document.cookie = `repaymentItem=${encodeURIComponent(JSON.stringify(repayData))};expires=${expires.toUTCString()};path=/`;
-
-                showNotification('Proceeding to payment...');
-                window.closeRepayModal();
-
-                setTimeout(() => {
-                    window.location.href = 'checkout.html?source=repayment';
-                }, 500);
-            } catch (error) {
-                console.error('Error:', error);
-                showNotification('Failed to proceed to payment', 'error');
-            }
+            showNotification('Redirecting to payment...');
+            closeRepayModal();
+            setTimeout(() => {
+                window.location.href = 'checkout.html?source=repayment';
+            }, 500);
         };
 
         // Load orders when user is authenticated
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 loadOrders();
+                if (typeof updateNavCounters === 'function') {
+                    updateNavCounters(user.uid, db);
+                }
             }
         });
     </script>
 
     <style>
+        /* Nav bar styles */
+        .search-container {
+            flex: 1;
+            max-width: 500px;
+            position: relative;
+            margin: 0 20px;
+        }
+        
+        .search-container input {
+            width: 100%;
+            padding: 10px 15px 10px 40px;
+            border: 2px solid #e0e0e0;
+            border-radius: 25px;
+            font-size: 14px;
+        }
+        
+        .search-container input:focus {
+            outline: none;
+            border-color: #ff5722;
+        }
+        
+        .search-icon {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #757575;
+        }
+        
+        .nav-icons {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .nav-btn {
+            background: none;
+            border: none;
+            padding: 10px;
+            cursor: pointer;
+            position: relative;
+            color: #424242;
+            font-size: 18px;
+            transition: color 0.3s;
+        }
+        
+        .nav-btn:hover {
+            color: #ff5722;
+        }
+        
+        .nav-counter {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            background: #ff5722;
+            color: white;
+            font-size: 10px;
+            min-width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
         .page-header {
             text-align: center;
             padding: 30px 20px;
@@ -413,14 +756,92 @@
             color: #ff5722;
         }
 
+        /* Timeline Styles */
+        .order-timeline {
+            padding: 20px;
+            background: #f9f9f9;
+        }
+
+        .timeline {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .timeline-step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            flex: 0 0 auto;
+        }
+
+        .step-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #e0e0e0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #757575;
+            transition: all 0.3s;
+        }
+
+        .timeline-step.complete .step-icon {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .timeline-step.current .step-icon {
+            background: #ff5722;
+            color: white;
+            box-shadow: 0 0 0 4px rgba(255, 87, 34, 0.2);
+        }
+
+        .step-label {
+            font-size: 11px;
+            color: #757575;
+            text-align: center;
+        }
+
+        .timeline-step.complete .step-label,
+        .timeline-step.current .step-label {
+            color: #212121;
+            font-weight: 600;
+        }
+
+        .timeline-line {
+            flex: 1;
+            height: 3px;
+            background: #e0e0e0;
+            margin: 0 4px 20px;
+        }
+
+        .timeline-line.complete {
+            background: #4CAF50;
+        }
+
+        .timeline-cancelled {
+            text-align: center;
+            color: #f44336;
+            font-weight: 600;
+            padding: 10px;
+        }
+
+        .timeline-cancelled i {
+            margin-right: 8px;
+        }
+
         .order-footer {
             display: flex;
             gap: 12px;
             padding: 16px 20px;
             border-top: 1px solid #e0e0e0;
+            align-items: center;
         }
 
-        .btn-repay, .btn-view-details {
+        .btn-repay, .btn-view-details, .btn-review {
             flex: 1;
             padding: 10px 16px;
             border: none;
@@ -453,6 +874,25 @@
             background: #e64a19;
         }
 
+        .btn-review {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-review:hover {
+            background: #43a047;
+        }
+
+        .reviewed-badge {
+            color: #4CAF50;
+            font-size: 13px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* Modal Styles */
         .modal {
             position: fixed;
             top: 0;
@@ -464,14 +904,21 @@
             align-items: center;
             justify-content: center;
             z-index: 1000;
+            padding: 20px;
         }
 
         .modal-content {
             background: white;
             border-radius: 12px;
             max-width: 400px;
-            width: 90%;
+            width: 100%;
             box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-large {
+            max-width: 600px;
         }
 
         .modal-header {
@@ -485,6 +932,13 @@
         .modal-header h2 {
             margin: 0;
             color: #212121;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .modal-header h2 i {
+            color: #ff9800;
         }
 
         .close-btn {
@@ -502,11 +956,6 @@
         .modal-body p {
             margin: 0 0 16px 0;
             color: #424242;
-        }
-
-        .repay-amount {
-            font-size: 18px;
-            color: #ff5722;
         }
 
         .modal-actions {
@@ -550,6 +999,184 @@
             background: #d0d0d0;
         }
 
+        /* Review Modal Styles */
+        .review-product-info {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 16px;
+            background: #f9f9f9;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .review-product-info img {
+            width: 60px;
+            height: 60px;
+            border-radius: 8px;
+            object-fit: cover;
+        }
+
+        .review-product-info h4 {
+            margin: 0 0 4px;
+        }
+
+        .review-product-info p {
+            margin: 0;
+            color: #757575;
+            font-size: 13px;
+        }
+
+        .star-rating {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-bottom: 12px;
+        }
+
+        .star-rating i {
+            font-size: 32px;
+            color: #e0e0e0;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .star-rating i:hover,
+        .star-rating i.active {
+            color: #ff9800;
+            transform: scale(1.1);
+        }
+
+        .rating-text {
+            text-align: center;
+            color: #757575;
+            margin-bottom: 20px;
+        }
+
+        #reviewText {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            resize: vertical;
+        }
+
+        #reviewText:focus {
+            outline: none;
+            border-color: #ff5722;
+        }
+
+        /* Order Detail Modal */
+        .order-detail-info {
+            background: #f9f9f9;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .detail-row:last-child {
+            border-bottom: none;
+        }
+
+        .detail-label {
+            color: #757575;
+        }
+
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .modal-body h3 {
+            margin: 20px 0 12px;
+            color: #212121;
+        }
+
+        .detail-items {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .detail-item {
+            display: flex;
+            gap: 12px;
+            padding: 12px;
+            background: #f9f9f9;
+            border-radius: 8px;
+        }
+
+        .detail-item img {
+            width: 60px;
+            height: 60px;
+            border-radius: 6px;
+            object-fit: cover;
+        }
+
+        .detail-item-info {
+            flex: 1;
+        }
+
+        .detail-item-info h4 {
+            margin: 0 0 4px;
+            font-size: 14px;
+        }
+
+        .detail-item-info p {
+            margin: 0;
+            font-size: 12px;
+            color: #757575;
+        }
+
+        .detail-item-price {
+            font-weight: 600;
+            color: #ff5722;
+        }
+
+        .detail-total {
+            display: flex;
+            justify-content: space-between;
+            padding: 16px;
+            background: #ff5722;
+            color: white;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+
+        .total-price {
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .shipping-info {
+            background: #f9f9f9;
+            padding: 16px;
+            border-radius: 8px;
+        }
+
+        .shipping-info p {
+            margin: 8px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .shipping-info i {
+            color: #ff5722;
+            width: 20px;
+        }
+
         .empty-state {
             text-align: center;
             padding: 60px 20px;
@@ -559,6 +1186,23 @@
             font-size: 64px;
             color: #ccc;
             margin-bottom: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .search-container {
+                display: none;
+            }
+            
+            .timeline {
+                flex-direction: column;
+                gap: 8px;
+            }
+            
+            .timeline-line {
+                width: 3px;
+                height: 20px;
+                margin: 0;
+            }
         }
 
         @media (max-width: 600px) {

@@ -80,6 +80,11 @@ async function loadUserProfile() {
 
         // Load user reviews
         await loadUserReviews();
+        
+        // Load user orders (only for own profile)
+        if (isOwnProfile) {
+            await loadUserOrders();
+        }
 
     } catch (error) {
         console.error('Error loading user profile:', error);
@@ -241,6 +246,79 @@ async function loadUserReviews() {
         `;
     } catch (error) {
         console.error('Error loading reviews:', error);
+    }
+}
+
+// Load user orders (for own profile only)
+async function loadUserOrders() {
+    if (!isOwnProfile) return;
+    
+    const ordersList = document.getElementById('ordersList');
+    const emptyOrders = document.getElementById('emptyOrders');
+    
+    if (!ordersList) return;
+    
+    try {
+        const ordersQuery = query(
+            collection(db, 'Orders'),
+            where('userId', '==', profileUserId)
+        );
+        
+        const ordersSnapshot = await getDocs(ordersQuery);
+        
+        if (ordersSnapshot.empty) {
+            ordersList.style.display = 'none';
+            if (emptyOrders) emptyOrders.style.display = 'block';
+            return;
+        }
+        
+        ordersList.style.display = 'grid';
+        if (emptyOrders) emptyOrders.style.display = 'none';
+        ordersList.innerHTML = '';
+        
+        const statusConfig = {
+            pending: { label: 'Pending', color: '#ff9800', icon: 'hourglass-half' },
+            confirmed: { label: 'Confirmed', color: '#2196F3', icon: 'check' },
+            out_for_delivery: { label: 'In Transit', color: '#9c27b0', icon: 'truck' },
+            delivered: { label: 'Delivered', color: '#4CAF50', icon: 'check-circle' },
+            cancelled: { label: 'Cancelled', color: '#f44336', icon: 'times-circle' }
+        };
+        
+        ordersSnapshot.forEach(docSnap => {
+            const order = docSnap.data();
+            const status = order.status || order.orderStatus || 'pending';
+            const config = statusConfig[status] || statusConfig.pending;
+            const firstItem = order.items?.[0] || order;
+            const orderDate = order.createdAt?.toDate?.() || new Date(order.createdAt) || new Date();
+            const totalAmount = order.totalAmount || order.total || (firstItem.price * (firstItem.quantity || 1));
+            
+            const card = document.createElement('div');
+            card.className = 'order-card';
+            card.onclick = () => window.location.href = `orderTracking.html`;
+            
+            card.innerHTML = `
+                <div class="order-card-header">
+                    <span class="order-id">#${docSnap.id.slice(-8).toUpperCase()}</span>
+                    <span class="order-status" style="background: ${config.color}20; color: ${config.color}">
+                        <i class="fas fa-${config.icon}"></i> ${config.label}
+                    </span>
+                </div>
+                <div class="order-card-body">
+                    <img src="${firstItem.photoUrl || firstItem.imageUrl || (firstItem.imageUrls && firstItem.imageUrls[0]) || 'images/product-placeholder.png'}" 
+                         alt="${firstItem.name}" onerror="this.src='images/product-placeholder.png'">
+                    <div class="order-card-info">
+                        <h4>${firstItem.name || 'Product'}</h4>
+                        <p class="order-date">${orderDate.toLocaleDateString()}</p>
+                        <p class="order-price">KES ${totalAmount.toLocaleString()}</p>
+                    </div>
+                </div>
+            `;
+            
+            ordersList.appendChild(card);
+        });
+        
+    } catch (error) {
+        console.error('Error loading orders:', error);
     }
 }
 

@@ -166,30 +166,40 @@ function setCookie(name, value, days = 1) {
 
 // Get the minimum price from variations/attributes and its associated retail price
 function getMinPriceFromVariations(listing) {
-    let minPrice = listing.price || Infinity;
-    let associatedRetail = listing.initialPrice || null;
+    let minPrice = Infinity;
+    let associatedRetail = null;
     
     if (listing.variations && listing.variations.length > 0) {
         listing.variations.forEach(variation => {
             if (variation.attributes && variation.attributes.length > 0) {
                 variation.attributes.forEach(attr => {
-                    if (attr.price && attr.price < minPrice) {
-                        minPrice = attr.price;
-                        associatedRetail = attr.retailPrice || null;
+                    const attrPrice = attr.price || attr.originalPrice;
+                    if (attrPrice && attrPrice < minPrice) {
+                        minPrice = attrPrice;
+                        // Check both retailPrice and retail field names
+                        associatedRetail = attr.retailPrice || attr.retail || null;
                     }
                 });
             } else {
-                if (variation.price && variation.price < minPrice) {
-                    minPrice = variation.price;
-                    associatedRetail = variation.retailPrice || null;
+                const varPrice = variation.price || variation.originalPrice;
+                if (varPrice && varPrice < minPrice) {
+                    minPrice = varPrice;
+                    // Check both retailPrice and retail field names
+                    associatedRetail = variation.retailPrice || variation.retail || null;
                 }
             }
         });
     }
     
+    // Fallback to listing price if no variations found
+    if (minPrice === Infinity) {
+        minPrice = listing.price || 0;
+        associatedRetail = listing.retailPrice || listing.retail || listing.initialPrice || null;
+    }
+    
     return {
-        price: minPrice === Infinity ? (listing.price || 0) : minPrice,
-        retailPrice: associatedRetail || listing.initialPrice || null
+        price: minPrice,
+        retailPrice: associatedRetail
     };
 }
 
@@ -227,13 +237,14 @@ function showQuantityModal(listingId, listing, isAddToCart = false) {
     if (allOptions.length > 0) {
         variationsHTML = '<div class="modal-variations"><h4>Select Option:</h4><div class="variations-grid">';
         allOptions.forEach((option, idx) => {
-            const optionPrice = option.price || listing.price;
+            const optionPrice = option.price || option.originalPrice || listing.price;
+            const optionRetail = option.retailPrice || option.retail;
             variationsHTML += `
                 <div class="variation-mini-card ${idx === 0 ? 'selected' : ''}" data-option-index="${idx}">
-                    ${option.photoUrl ? `<img src="${option.photoUrl}" alt="${option.displayName}">` : '<i class="fas fa-box"></i>'}
+                    ${option.photoUrl || option.imageUrl ? `<img src="${option.photoUrl || option.imageUrl}" alt="${option.displayName}">` : '<i class="fas fa-box"></i>'}
                     <p><strong>${option.displayName}</strong></p>
                     <p class="variation-price">KES ${optionPrice.toLocaleString()}</p>
-                    ${option.retailPrice ? `<p class="variation-retail"><s>KES ${option.retailPrice.toLocaleString()}</s></p>` : ''}
+                    ${optionRetail ? `<p class="variation-retail">Retail: KES ${optionRetail.toLocaleString()}</p>` : ''}
                     <p class="variation-stock">${option.stock || 0} units</p>
                 </div>
             `;
@@ -674,6 +685,7 @@ const loadFeaturedListings = async (filterCriteria = {}, isInitialLoad = false) 
             <div class="uploader-info">
               <p class="uploader-name"><strong>${displayName}</strong></p>
               <p class="product-name">${listing.name}</p>
+              ${listing.packInfo ? `<p class="pack-size"><i class="fas fa-box"></i> ${listing.packInfo}</p>` : ''}
             </div>
             <div class="product-actions profile-actions">
               <div>
@@ -702,10 +714,9 @@ const loadFeaturedListings = async (filterCriteria = {}, isInitialLoad = false) 
               const priceData = getMinPriceFromVariations(listing);
               const minPrice = priceData.price;
               const retailPrice = priceData.retailPrice;
-              const hasVariations = listing.variations && listing.variations.length > 0;
               return `
               <div class="price-row">
-                <span class="price-label">${hasVariations ? 'From:' : 'Wholesale:'}</span>
+                <span class="price-label">Wholesale:</span>
                 <strong class="wholesale-amount">KES ${minPrice.toLocaleString()}</strong>
               </div>
               ${retailPrice && retailPrice > minPrice ? `

@@ -743,3 +743,120 @@
         width: 100%;
     }
 }
+
+/* Orders Tab Styles */
+.orders-filter-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.filter-btn {
+    padding: 8px 16px;
+    border: 2px solid var(--border-color);
+    border-radius: 20px;
+    background: white;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-medium);
+    transition: all 0.3s;
+}
+
+.filter-btn:hover {
+    border-color: var(--carrot-orange);
+    color: var(--carrot-orange);
+}
+
+.filter-btn.active {
+    background: var(--carrot-orange);
+    border-color: var(--carrot-orange);
+    color: white;
+}
+
+.orders-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+}
+
+.order-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.order-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.order-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.order-id {
+    font-weight: 600;
+    color: var(--text-dark);
+    font-size: 14px;
+}
+
+.order-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.order-card-body {
+    display: flex;
+    gap: 12px;
+    padding: 16px;
+}
+
+.order-card-body img {
+    width: 70px;
+    height: 70px;
+    border-radius: 8px;
+    object-fit: cover;
+}
+
+.order-card-info {
+    flex: 1;
+}
+
+.order-card-info h4 {
+    margin: 0 0 4px;
+    font-size: 14px;
+    color: var(--text-dark);
+}
+
+.order-card-info .order-date {
+    color: var(--text-light);
+    font-size: 12px;
+    margin: 0 0 8px;
+}
+
+.order-card-info .order-price {
+    color: var(--carrot-orange);
+    font-weight: 700;
+    font-size: 16px;
+    margin: 0;
+}
+
+@media (max-width: 600px) {
+    .orders-list {
+        grid-template-columns: 1fr;
+    }
+}

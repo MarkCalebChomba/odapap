@@ -1,37 +1,44 @@
 import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
-import { getFirestore, collection, doc, getDocs, deleteDoc, addDoc, updateDoc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+import { getFirestore, collection, doc, getDocs, deleteDoc, addDoc, updateDoc, getDoc, setDoc, query, where, orderBy, limit } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
 import { app } from './js/firebase.js';
 import { showNotification } from './notifications.js';
+import { updateCartCounter, updateWishlistCounter, updateChatCounter } from './js/utils.js';
 
 const auth = getAuth(app);
 const firestore = getFirestore(app);
 
 const cartItemsContainer = document.getElementById('cart-items');
 const totalPriceElement = document.getElementById('total-price');
+const subtotalElement = document.getElementById('subtotal');
+const deliveryFeeElement = document.getElementById('delivery-fee');
 const checkoutButton = document.getElementById('checkout-button');
+const clearCartBtn = document.getElementById('clear-cart-btn');
+const emptyCartEl = document.getElementById('empty-cart');
+const cartSummary = document.getElementById('cart-summary');
+const cartCountText = document.getElementById('cart-count-text');
 
 class CartManager {
     constructor() {
-        this.cartItems = new Map(); // Use Map for better item management
+        this.cartItems = new Map();
         this.user = null;
+        this.deliveryFee = 0;
     }
 
-    // Update cart icon with item count
-    updateCartIcon(count) {
-        const cartIcon = document.getElementById('cart-icon');
-        let notification = cartIcon.querySelector('.cart-notification');
-        
-        if (!notification) {
-            notification = document.createElement('span');
-            notification.className = 'cart-notification';
-            cartIcon.appendChild(notification);
-        }
-        
-        notification.textContent = count;
-        notification.style.display = count > 0 ? 'flex' : 'none';
+    updateCartCounters() {
+        const count = this.getTotalItemCount();
+        // Update nav counter
+        const navCounter = document.getElementById('cart-count');
+        if (navCounter) navCounter.textContent = count > 0 ? count : '';
+        // Update page text
+        if (cartCountText) cartCountText.textContent = `${count} item${count !== 1 ? 's' : ''} in your cart`;
     }
 
-    // Load cart items from Firestore
+    getTotalItemCount() {
+        let count = 0;
+        this.cartItems.forEach(item => count += item.quantity);
+        return count;
+    }
+
     async loadCartItems(user) {
         if (!user) {
             showNotification('Please log in to view your cart.');
@@ -45,14 +52,10 @@ class CartManager {
             cartItemsContainer.innerHTML = '';
 
             if (cartSnapshot.empty) {
-                cartItemsContainer.innerHTML = '<p class="empty-cart-message">Your cart is empty.</p>';
-                totalPriceElement.textContent = 'KES 0.00';
-                this.updateCartIcon(0);
-                checkoutButton.disabled = true;
+                this.showEmptyState();
                 return;
             }
 
-            // Process cart items
             cartSnapshot.forEach(docSnap => {
                 const item = docSnap.data();
                 const itemKey = this.generateItemKey(item);
@@ -67,10 +70,11 @@ class CartManager {
                         docIds: [docSnap.id],
                         listingId: item.listingId,
                         name: item.name,
-                        price: item.price,
+                        price: item.selectedVariation?.price || item.price,
                         quantity: item.quantity || 1,
                         selectedVariation: item.selectedVariation || null,
-                        imageUrl: item.photoTraceUrl || item.imageUrls?.[0] || 'images/placeholder.png',
+                        imageUrl: item.selectedVariation?.photoUrl || item.selectedVariation?.imageUrl || item.photoTraceUrl || item.imageUrls?.[0] || 'images/product-placeholder.png',
+                        retailPrice: item.selectedVariation?.retailPrice || item.retailPrice || null,
                         ...item
                     });
                 }
@@ -78,7 +82,8 @@ class CartManager {
 
             this.displayCartItems();
             this.updateTotals();
-            checkoutButton.disabled = false;
+            emptyCartEl.style.display = 'none';
+            cartSummary.style.display = 'block';
 
         } catch (error) {
             console.error('Error loading cart items:', error);
@@ -86,10 +91,16 @@ class CartManager {
         }
     }
 
+    showEmptyState() {
+        cartItemsContainer.innerHTML = '';
+        emptyCartEl.style.display = 'flex';
+        cartSummary.style.display = 'none';
+        this.updateCartCounters();
+    }
+
     generateItemKey(item) {
-        // Generate unique key including variation if present
         const variationKey = item.selectedVariation ? 
-            `-${item.selectedVariation.attr_name}` : '';
+            `-${item.selectedVariation.attr_name || item.selectedVariation.display || ''}` : '';
         return `${item.listingId}${variationKey}`;
     }
 
@@ -98,50 +109,34 @@ class CartManager {
 
         this.cartItems.forEach((item, itemKey) => {
             const itemTotal = item.price * item.quantity;
+            const variantName = item.selectedVariation?.attr_name || item.selectedVariation?.display || item.selectedVariation?.variationTitle || '';
             
             const cartItemEl = document.createElement('div');
             cartItemEl.className = 'cart-item';
             cartItemEl.dataset.itemKey = itemKey;
             
             cartItemEl.innerHTML = `
-                <img src="${item.imageUrl}" alt="${item.name}" class="cart-item-image">
-                <div class="cart-item-details">
-                    <h4>${item.name}</h4>
-                    ${item.selectedVariation ? `
-                        <p class="item-variation">
-                            <strong>${item.selectedVariation.title}:</strong> ${item.selectedVariation.attr_name}
-                        </p>
-                    ` : ''}
-                    <div class="quantity-controls">
-                        <label>Quantity:</label>
-                        <button class="qty-btn minus" data-action="decrease" data-key="${itemKey}">
-                            <i class="fas fa-minus"></i>
-                        </button>
-                        <span class="quantity-display">${item.quantity}</span>
-                        <button class="qty-btn plus" data-action="increase" data-key="${itemKey}">
-                            <i class="fas fa-plus"></i>
+                <img src="${item.imageUrl}" alt="${item.name}" class="cart-item-image" onclick="window.location.href='product.html?id=${item.listingId}'">
+                <div class="cart-item-content">
+                    <div class="cart-item-header">
+                        <h4 class="cart-item-name">${item.name}</h4>
+                    </div>
+                    ${variantName ? `<span class="cart-item-variant">${variantName}</span>` : ''}
+                    <p class="cart-item-price">KES ${item.price.toLocaleString()}</p>
+                    ${item.retailPrice ? `<p class="cart-item-retail">Retail: KES ${item.retailPrice.toLocaleString()}</p>` : ''}
+                    <div class="cart-item-actions">
+                        <div class="quantity-controls">
+                            <button class="qty-btn" data-action="decrease" data-key="${itemKey}">−</button>
+                            <span>${item.quantity}</span>
+                            <button class="qty-btn" data-action="increase" data-key="${itemKey}">+</button>
+                        </div>
+                        <button class="remove-btn" data-key="${itemKey}">
+                            <i class="fas fa-trash"></i>
                         </button>
                     </div>
-                    <p class="item-price">
-                        <span>Price:</span>
-                        <span>KES ${item.price.toLocaleString()} × ${item.quantity}</span>
-                    </p>
-                    <p class="item-total">
-                        <strong>Total:</strong>
-                        <strong>KES ${itemTotal.toLocaleString()}</strong>
-                    </p>
-                    <button class="remove-btn" data-key="${itemKey}">
-                        <i class="fas fa-trash"></i> Remove
-                    </button>
+                    <p style="font-weight: 600; margin-top: 5px;">Subtotal: KES ${itemTotal.toLocaleString()}</p>
                 </div>
             `;
-
-            // Add click to view product (except on buttons)
-            cartItemEl.addEventListener('click', (e) => {
-                if (!e.target.closest('.qty-btn') && !e.target.closest('.remove-btn')) {
-                    window.location.href = `product.html?id=${item.listingId}`;
-                }
-            });
 
             cartItemsContainer.appendChild(cartItemEl);
         });
@@ -241,16 +236,39 @@ class CartManager {
     }
 
     updateTotals() {
-        let total = 0;
+        let subtotal = 0;
         let itemCount = 0;
 
         this.cartItems.forEach(item => {
-            total += item.price * item.quantity;
+            subtotal += item.price * item.quantity;
             itemCount += item.quantity;
         });
 
-        totalPriceElement.textContent = `KES ${total.toLocaleString()}`;
-        this.updateCartIcon(itemCount);
+        const total = subtotal + this.deliveryFee;
+        
+        if (subtotalElement) subtotalElement.textContent = `KES ${subtotal.toLocaleString()}`;
+        if (deliveryFeeElement) deliveryFeeElement.textContent = `KES ${this.deliveryFee.toLocaleString()}`;
+        if (totalPriceElement) totalPriceElement.textContent = `KES ${total.toLocaleString()}`;
+        
+        this.updateCartCounters();
+    }
+
+    async clearCart() {
+        if (!confirm('Are you sure you want to clear your entire cart?')) return;
+        
+        try {
+            for (const [itemKey, item] of this.cartItems) {
+                for (const docId of item.docIds) {
+                    await deleteDoc(doc(firestore, `users/${this.user.uid}/cart/${docId}`));
+                }
+            }
+            this.cartItems.clear();
+            this.showEmptyState();
+            showNotification('Cart cleared');
+        } catch (error) {
+            console.error('Error clearing cart:', error);
+            showNotification('Error clearing cart');
+        }
     }
 
     async addToCart(listingId) {
@@ -303,10 +321,14 @@ class CartManager {
 const cartManager = new CartManager();
 
 // Auth state observer
-onAuthStateChanged(auth, (user) => {
+onAuthStateChanged(auth, async (user) => {
     if (user) {
         cartManager.user = user;
-        cartManager.loadCartItems(user);
+        await cartManager.loadCartItems(user);
+        // Update all counters
+        await updateCartCounter(firestore, user.uid);
+        await updateWishlistCounter(firestore, user.uid);
+        await updateChatCounter(firestore, user.uid);
     } else {
         showNotification('Please log in to view your cart');
         setTimeout(() => {
@@ -316,13 +338,95 @@ onAuthStateChanged(auth, (user) => {
 });
 
 // Checkout button
-checkoutButton.addEventListener('click', () => {
+checkoutButton?.addEventListener('click', () => {
     if (auth.currentUser && cartManager.cartItems.size > 0) {
         window.location.href = 'checkout.html?source=cart';
     } else if (!auth.currentUser) {
         showNotification('Please log in to checkout');
     } else {
         showNotification('Your cart is empty');
+    }
+});
+
+// Clear cart button
+clearCartBtn?.addEventListener('click', () => {
+    cartManager.clearCart();
+});
+
+// ===== SEARCH FUNCTIONALITY =====
+const searchForm = document.getElementById('searchForm');
+const searchInput = document.getElementById('searchInput');
+const searchSuggestions = document.getElementById('searchSuggestions');
+
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+const performSearch = async (searchTerm) => {
+    if (!searchTerm || searchTerm.length < 2) {
+        searchSuggestions.style.display = 'none';
+        return;
+    }
+    
+    try {
+        const listingsRef = collection(firestore, "Listings");
+        const q = query(
+            listingsRef,
+            where("name", ">=", searchTerm.toLowerCase()),
+            where("name", "<=", searchTerm.toLowerCase() + '\uf8ff'),
+            limit(8)
+        );
+        const querySnapshot = await getDocs(q);
+        searchSuggestions.innerHTML = '';
+        
+        if (querySnapshot.empty) {
+            searchSuggestions.style.display = 'none';
+            return;
+        }
+
+        querySnapshot.forEach((doc) => {
+            const listing = doc.data();
+            const div = document.createElement('div');
+            div.className = 'suggestion-item';
+            div.innerHTML = `
+                <img src="${listing.imageUrls?.[0] || 'images/product-placeholder.png'}" alt="${listing.name}">
+                <span>${listing.name}</span>
+                <span style="margin-left: auto; color: #ff5722; font-weight: 600;">KES ${(listing.price || 0).toLocaleString()}</span>
+            `;
+            div.addEventListener('click', () => {
+                window.location.href = `product.html?id=${doc.id}`;
+            });
+            searchSuggestions.appendChild(div);
+        });
+        searchSuggestions.style.display = 'block';
+    } catch (error) {
+        console.error('Search error:', error);
+    }
+};
+
+const debouncedSearch = debounce((e) => performSearch(e.target.value), 300);
+
+searchInput?.addEventListener('input', debouncedSearch);
+
+searchForm?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const searchTerm = searchInput.value.trim();
+    if (searchTerm) {
+        window.location.href = `search-results.html?q=${encodeURIComponent(searchTerm)}`;
+    }
+});
+
+document.addEventListener('click', (e) => {
+    if (searchSuggestions && !searchSuggestions.contains(e.target) && !searchInput?.contains(e.target)) {
+        searchSuggestions.style.display = 'none';
     }
 });
 

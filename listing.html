@@ -2,297 +2,257 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <link rel="icon" type="image/jpeg" href="images/logo.jpg">
-    <link rel="apple-touch-icon" href="images/logo.jpg">
-    <title>Oda Pap - Seller Hub</title>
+    <title>Sell on Oda Pap</title>
     <link rel="stylesheet" href="listing.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
 </head>
 <body>
-<header>
-    <div class="top-bar">
-        <div class="logo-container">
-            <img src="images/logo.jpg" alt="Oda Pap Logo" class="logo">
-            <span class="logo-text">Oda Pap B2B</span>
-        </div>
-        <div class="top-icons">
-            <button class="home-button" onclick="location.href='index.html'">Home</button>
-        </div>
-    </div>
-    <div class="border-line"></div>
-    <div class="nav-bar" id="nav-bar">
-        <button class="home-button" onclick="location.href='index.html'"><i class="fas fa-home"></i></button>
-        <button class="home-button" onclick="location.href='notification.html'"><i class="fas fa-bell"></i></button>
-        <button class="home-button" onclick="location.href='cart.html'"><i class="fas fa-shopping-cart"></i></button>
-        <button class="home-button" onclick="location.href='profile.html'"><i class="fas fa-user-circle"></i></button>
-    </div>
-</header>
+    <header class="header">
+        <a href="index.html" class="logo"><img src="images/logo.jpg" alt=""><span>Oda Pap</span></a>
+        <nav>
+            <a href="index.html"><i class="fas fa-home"></i></a>
+            <a href="notification.html"><i class="fas fa-bell"></i></a>
+            <a href="profile.html"><i class="fas fa-user"></i></a>
+        </nav>
+    </header>
 
-<main>
-    <div class="page-header">
-        <h1><i class="fas fa-store"></i> Seller Hub</h1>
-        <p class="page-subtitle">List your products and reach thousands of wholesale buyers across Kenya</p>
-    </div>
-    
-    <div id="profile-incomplete-message" style="display: none;">
-        <p>Your profile is incomplete. Please update your profile before listing products.</p>
-    </div>
-
-    <!-- User Profile Information -->
-    <div id="profile-info">
-        <img id="profile-pic" src="" alt="Profile Picture" />
-        <div class="profile-details">
-            <p id="seller-name">Name: Unknown</p>
-            <p id="seller-email">Email: Unknown</p>
-            <p id="seller-location">Location: Unknown</p>
-        </div>
-    </div>
-
-    <!-- Multi-Step Wizard Container -->
-    <div class="wizard-container">
-        <!-- Progress Bar -->
-        <div class="progress-bar">
-            <div class="progress-step active" data-step="1">
-                <div class="step-circle">1</div>
-                <div class="step-label">Classification</div>
+    <main class="main">
+        <!-- Seller Card -->
+        <div class="seller-card">
+            <img id="profile-pic" src="images/default-profile.png" alt="">
+            <div class="seller-info">
+                <h3 id="seller-name">Seller</h3>
+                <p id="seller-location"><i class="fas fa-map-marker-alt"></i> <span>Location</span></p>
             </div>
-            <div class="progress-step" data-step="2">
-                <div class="step-circle">2</div>
-                <div class="step-label">Product Info</div>
-            </div>
-            <div class="progress-step" data-step="3">
-                <div class="step-circle">3</div>
-                <div class="step-label">Inventory</div>
-            </div>
-            <div class="progress-step" data-step="4">
-                <div class="step-circle">4</div>
-                <div class="step-label">Review</div>
-            </div>
+            <div class="stat"><span id="total-listings">0</span><small>Listings</small></div>
         </div>
 
-        <!-- Form Steps -->
-        <form id="item-listing-form" novalidate>
-            <!-- Step 1: Classification & Brand -->
-            <div class="form-step active" data-step="1">
-                <div class="step-card">
-                    <h2><i class="fas fa-tags"></i> Classification & Brand</h2>
-                    <p class="step-description">Help buyers find your product by selecting the right category and brand</p>
+        <!-- Profile Warning -->
+        <div id="profile-warning" class="warning-banner" style="display:none;">
+            <i class="fas fa-exclamation-circle"></i>
+            <span>Complete your profile</span>
+            <a href="profile.html">Go</a>
+        </div>
 
-                    <div class="form-group">
-                        <label for="category"><i class="fas fa-th-large"></i> Main Category *</label>
-                        <select id="category" name="category" required>
-                             <option value="">Select a category</option>
-                             <!-- Categories will be populated dynamically from categoryData.js -->
-                        </select>
-                        <small>Choose the main category that best describes your product</small>
-                    </div>
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab active" data-tab="new-listing"><i class="fas fa-plus-circle"></i> New</button>
+            <button class="tab" data-tab="my-listings"><i class="fas fa-store"></i> My Listings</button>
+        </div>
 
-                    <div class="form-group" id="subcategory-group" style="display: none;">
-                        <label for="subcategory"><i class="fas fa-folder-open"></i> Sub-Category *</label>
-                        <select id="subcategory" name="subcategory" required disabled>
-                            <option value="">Select sub-category</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group" id="subsubcategory-group" style="display: none;">
-                        <label for="subsubcategory"><i class="fas fa-tag"></i> Specific Type *</label>
-                        <select id="subsubcategory" name="subsubcategory" disabled>
-                            <option value="">Select specific type</option>
-                        </select>
-                        <small>★ marked items were added by other sellers</small>
-                    </div>
-
-                    <div class="form-group" id="custom-subsubcategory-group" style="display: none;">
-                        <label for="custom-subsubcategory"><i class="fas fa-plus-circle"></i> Custom Type *</label>
-                        <input type="text" id="custom-subsubcategory" placeholder="Enter your custom product type">
-                        <small><i class="fas fa-info-circle"></i> This will be saved and available for all sellers to use</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="brand-name"><i class="fas fa-certificate"></i> Brand Name *</label>
-                        <select id="brand-name" name="brand-name">
-                            <option value="">Select brand</option>
-                        </select>
-                        <small>★ marked brands were added by other sellers</small>
-                    </div>
-
-                    <div class="form-group" id="custom-brand-group" style="display: none;">
-                        <label for="custom-brand"><i class="fas fa-plus-circle"></i> New Brand Name *</label>
-                        <input type="text" id="custom-brand" placeholder="Enter brand name">
-                        <small><i class="fas fa-info-circle"></i> This brand will be saved for future use</small>
-                    </div>
-                </div>
+        <!-- NEW LISTING TAB -->
+        <section class="tab-content active" id="new-listing">
+            <!-- Progress Steps (Clickable + Swipeable) -->
+            <div class="steps" id="steps">
+                <div class="step active" data-step="1"><span>1</span><small>Product</small></div>
+                <div class="step" data-step="2"><span>2</span><small>Category</small></div>
+                <div class="step" data-step="3"><span>3</span><small>Pricing</small></div>
+                <div class="step" data-step="4"><span>4</span><small>Review</small></div>
             </div>
 
-            <!-- Step 2: Product Identity & Verification -->
-            <div class="form-step" data-step="2">
-                <div class="step-card">
-                    <h2><i class="fas fa-info-circle"></i> Product Details</h2>
-                    <p class="step-description">Add compelling details and photos that convince wholesale buyers</p>
+            <!-- Context Pills (memory jogger on step 2+) -->
+            <div class="context-pills" id="context-pills"></div>
 
-                    <div class="form-group">
-                        <label for="item-name"><i class="fas fa-box"></i> Product Name *</label>
-                        <input type="text" id="item-name" placeholder="e.g., Premium Cotton T-Shirts - Bulk Pack" required>
-                        <small>Use clear, descriptive names that include key features</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="description"><i class="fas fa-align-left"></i> Product Description *</label>
-                        <textarea id="description" rows="5" placeholder="Describe materials, quality, sizing, packaging details, and what makes your product stand out..." required></textarea>
-                        <small>Detailed descriptions increase buyer confidence and sales</small>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="required-label">
-                            <i class="fas fa-images"></i> Product Images *
-                        </label>
-                        <p class="photo-info">Upload at least 1 clear photo of your product (up to 5 images)</p>
-                        <div class="image-upload-container">
-                            <input type="file" id="media-upload-1" accept="image/*" style="display: none;">
-                            <label for="media-upload-1" class="image-upload-label primary-image" id="image-upload-label-1">
-                                <i class="fas fa-plus"></i>
-                                <span class="upload-text">Main Photo *</span>
-                                <span class="delete-icon" onclick="removeImage(1)">×</span>
-                            </label>
-
-                            <input type="file" id="media-upload-2" accept="image/*" style="display: none;">
-                            <label for="media-upload-2" class="image-upload-label" id="image-upload-label-2">
-                                <i class="fas fa-plus"></i>
-                                <span class="delete-icon" onclick="removeImage(2)">×</span>
-                            </label>
-
-                            <input type="file" id="media-upload-3" accept="image/*" style="display: none;">
-                            <label for="media-upload-3" class="image-upload-label" id="image-upload-label-3">
-                                <i class="fas fa-plus"></i>
-                                <span class="delete-icon" onclick="removeImage(3)">×</span>
-                            </label>
-
-                            <input type="file" id="media-upload-4" accept="image/*" style="display: none;">
-                            <label for="media-upload-4" class="image-upload-label" id="image-upload-label-4">
-                                <i class="fas fa-plus"></i>
-                                <span class="delete-icon" onclick="removeImage(4)">×</span>
-                            </label>
-
-                            <input type="file" id="media-upload-5" accept="image/*" style="display: none;">
-                            <label for="media-upload-5" class="image-upload-label" id="image-upload-label-5">
-                                <i class="fas fa-plus"></i>
-                                <span class="delete-icon" onclick="removeImage(5)">×</span>
-                            </label>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Step 3: Variation Matrix -->
-            <div class="form-step" data-step="3">
-                <div class="step-card">
-                    <h2><i class="fas fa-boxes"></i> Inventory & Variations</h2>
-                    <p class="step-description">Set up different options like sizes, colors, or packaging - each with its own stock and price</p>
+            <!-- Swipeable Form -->
+            <form id="listing-form" novalidate>
+                <div class="form-wrapper" id="form-wrapper">
                     
-                    <div class="variation-tips">
-                        <div class="tip-icon"><i class="fas fa-lightbulb"></i></div>
-                        <div class="tip-content">
-                            <strong>Pro Tips:</strong>
-                            <ul>
-                                <li>Select a variation type to see quick-add suggestions</li>
-                                <li>Each option can have its own stock, price, and image</li>
-                                <li>Add up to 3 different variation types (e.g., Size + Color)</li>
-                            </ul>
+                    <!-- STEP 1: Product -->
+                    <div class="form-step" data-step="1">
+                        <div class="form-card">
+                            <h2><i class="fas fa-box-open"></i> What are you selling?</h2>
+                            
+                            <div class="field">
+                                <label>Product Name <span class="req">*</span></label>
+                                <input type="text" id="product-name" placeholder="e.g., Cotton T-Shirts Bulk" maxlength="150">
+                                <small><span id="name-count">0</span>/150</small>
+                            </div>
+
+                            <div class="field">
+                                <label>Photos <span class="req">*</span> <small>(max 5, 2MB each)</small></label>
+                                <div class="upload-area" id="upload-area">
+                                    <input type="file" id="img-input" accept="image/jpeg,image/jpg,image/png,image/webp,image/heic" multiple hidden>
+                                    <i class="fas fa-camera"></i>
+                                    <span>Tap to add photos</span>
+                                </div>
+                                <div class="img-grid" id="img-grid"></div>
+                            </div>
+
+                            <div class="field">
+                                <label>Description <span class="req">*</span></label>
+                                <textarea id="description" rows="4" placeholder="Describe materials, sizes, features..." maxlength="2000"></textarea>
+                                <small><span id="desc-count">0</span>/2000</small>
+                            </div>
                         </div>
                     </div>
 
-                    <div id="variations-container">
-                        <!-- Variation rows will be added here dynamically -->
+                    <!-- STEP 2: Category -->
+                    <div class="form-step" data-step="2">
+                        <div class="form-card">
+                            <h2><i class="fas fa-tags"></i> Category & Brand</h2>
+
+                            <div class="field">
+                                <label>Category <span class="req">*</span></label>
+                                <select id="category"><option value="">Select category</option></select>
+                            </div>
+
+                            <div class="field" id="sub-field" style="display:none;">
+                                <label>Subcategory <span class="req">*</span></label>
+                                <select id="subcategory"><option value="">Select subcategory</option></select>
+                            </div>
+
+                            <div class="field" id="type-field" style="display:none;">
+                                <label>Product Type</label>
+                                <select id="product-type"><option value="">Select type (optional)</option></select>
+                            </div>
+
+                            <div class="field" id="custom-type-field" style="display:none;">
+                                <label>Custom Type <span class="req">*</span></label>
+                                <input type="text" id="custom-type" placeholder="Enter type">
+                            </div>
+
+                            <div class="field">
+                                <label>Brand <span class="req">*</span></label>
+                                <select id="brand"><option value="">Select brand</option></select>
+                            </div>
+
+                            <div class="field" id="custom-brand-field" style="display:none;">
+                                <label>Brand Name <span class="req">*</span></label>
+                                <input type="text" id="custom-brand" placeholder="Enter brand">
+                            </div>
+                        </div>
                     </div>
 
-                    <button type="button" class="add-variation-btn" id="add-variation-btn">
-                        <i class="fas fa-plus"></i> Add Another Variation Type
-                    </button>
+                    <!-- STEP 3: Pricing -->
+                    <div class="form-step" data-step="3">
+                        <div class="form-card">
+                            <h2><i class="fas fa-money-bill"></i> Pricing & Stock</h2>
+                            <p class="hint">Add options like sizes/colors with prices</p>
+                            <div id="variants-box"></div>
+                            <button type="button" class="btn-outline" id="add-variant-btn"><i class="fas fa-plus"></i> Add Variant Type</button>
+
+                            <details class="bulk-box">
+                                <summary><i class="fas fa-percent"></i> Bulk Discounts</summary>
+                                <div id="bulk-tiers"></div>
+                                <button type="button" class="btn-text" id="add-tier-btn"><i class="fas fa-plus"></i> Add Tier</button>
+                            </details>
+                        </div>
+                    </div>
+
+                    <!-- STEP 4: Review -->
+                    <div class="form-step" data-step="4">
+                        <div class="form-card">
+                            <h2><i class="fas fa-clipboard-check"></i> Review & Publish</h2>
+                            <div id="review-box"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Nav Buttons -->
+                <div class="form-nav">
+                    <button type="button" class="btn-back" id="btn-back"><i class="fas fa-chevron-left"></i></button>
+                    <button type="button" class="btn-next" id="btn-next">Next <i class="fas fa-chevron-right"></i></button>
+                    <button type="submit" class="btn-submit" id="btn-submit"><i class="fas fa-rocket"></i> Publish</button>
+                </div>
+            </form>
+        </section>
+
+        <!-- MY LISTINGS TAB -->
+        <section class="tab-content" id="my-listings">
+            <div class="list-header">
+                <input type="text" id="search-list" placeholder="Search...">
+                <div class="view-btns">
+                    <button class="active" data-view="grid"><i class="fas fa-th"></i></button>
+                    <button data-view="list"><i class="fas fa-list"></i></button>
+                    <button data-view="table"><i class="fas fa-table"></i></button>
                 </div>
             </div>
-
-            <!-- Step 4: Review & Submit -->
-            <div class="form-step" data-step="4">
-                <div class="step-card">
-                    <h2><i class="fas fa-clipboard-check"></i> Review & Submit</h2>
-                    <p class="step-description">Review your listing details before publishing</p>
-
-                    <div class="bulk-pricing-section">
-                        <div class="bulk-header">
-                            <h3><i class="fas fa-layer-group"></i> Bulk Pricing (Optional)</h3>
-                            <button type="button" id="toggle-bulk-pricing" class="toggle-btn">
-                                <i class="fas fa-plus"></i> Add Bulk Discounts
-                            </button>
-                        </div>
-                        
-                        <div id="bulk-pricing-container" style="display: none;">
-                            <p class="bulk-info">Define discount tiers for larger orders</p>
-                            <div id="bulk-tiers-container"></div>
-                            <button type="button" class="add-tier-btn" id="add-bulk-tier-btn">
-                                <i class="fas fa-plus"></i> Add Tier
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Hidden fields for compatibility -->
-                    <input type="hidden" id="item-price" value="0">
-                    <input type="hidden" id="initial-price" value="">
-
-                    <div class="review-section">
-                        <h3><i class="fas fa-clipboard-check"></i> Review Your Listing</h3>
-                        <div id="review-summary"></div>
-                    </div>
+            <div id="listings-grid" class="listings-grid"></div>
+            
+            <!-- Excel-like Table View -->
+            <div id="listings-table" class="listings-table" style="display:none;">
+                <div class="table-toolbar">
+                    <span class="table-info"><i class="fas fa-info-circle"></i> Click any cell to edit. Changes auto-save.</span>
+                    <button class="btn-save-all" id="save-all-btn" style="display:none;"><i class="fas fa-save"></i> Save All</button>
+                </div>
+                <div class="table-scroll">
+                    <table id="excel-table">
+                        <thead>
+                            <tr>
+                                <th class="col-img">Image</th>
+                                <th class="col-name">Name</th>
+                                <th class="col-desc">Description</th>
+                                <th class="col-price">Price</th>
+                                <th class="col-stock">Stock</th>
+                                <th class="col-actions">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="excel-body"></tbody>
+                    </table>
                 </div>
             </div>
-
-            <!-- Navigation Buttons -->
-            <div class="form-navigation">
-                <button type="button" class="nav-btn prev-btn" id="prev-btn" style="display: none;">
-                    <i class="fas fa-arrow-left"></i> Back
-                </button>
-                <button type="button" class="nav-btn next-btn" id="next-btn">
-                    Next <i class="fas fa-arrow-right"></i>
-                </button>
-                <button type="submit" class="nav-btn submit-btn" id="submit-button" style="display: none;" data-id="">
-                    <i class="fas fa-check-circle"></i> Publish Listing
-                </button>
+            
+            <div id="empty-list" class="empty-box" style="display:none;">
+                <i class="fas fa-box-open"></i>
+                <p>No listings yet</p>
+                <button class="btn-primary" onclick="switchTab('new-listing')">Create Listing</button>
             </div>
-        </form>
-    </div>
+        </section>
+    </main>
 
-    <!-- Spinner -->
-    <div id="spinner" class="spinner" style="display: none;"></div>
+    <!-- Toast -->
+    <div id="toast-box"></div>
 
-    <!-- Active Listings Section -->
-    <div class="listings-section">
-        <div class="section-header">
-            <h2><i class="fas fa-store"></i> Your Active Listings</h2>
-            <p class="section-subtitle">Manage your products - edit prices, update stock, or remove items</p>
+    <!-- Loading -->
+    <div id="loader" style="display:none;"><div class="spin"></div><p id="load-text">Loading...</p></div>
+
+    <!-- Image Editor -->
+    <div id="editor-modal" class="modal">
+        <div class="editor-head"><span>Edit Photo</span><button onclick="closeEditor()"><i class="fas fa-times"></i></button></div>
+        <div class="editor-body"><img id="edit-img" src=""></div>
+        <div class="editor-tools">
+            <button onclick="rotateImg(-90)"><i class="fas fa-undo"></i></button>
+            <button onclick="rotateImg(90)"><i class="fas fa-redo"></i></button>
+            <button onclick="flipImg('h')"><i class="fas fa-arrows-alt-h"></i></button>
+            <button onclick="flipImg('v')"><i class="fas fa-arrows-alt-v"></i></button>
         </div>
-        <div id="listings-container"></div>
-    </div>
-
-    <!-- Modal for enlarged image -->
-    <div id="imageModal" class="modal">
-        <span class="close" onclick="closeModal()">&times;</span>
-        <div class="modal-content">
-            <img id="modal-image" src="">
-        </div>
-    </div>
-
-    <!-- Floating Navigation Indicator -->
-    <div id="floating-nav-indicator">
-        <span class="current-step">Step 1 of 4</span>
-        <div class="step-dots">
-            <span class="step-dot active" data-step="1"></span>
-            <span class="step-dot" data-step="2"></span>
-            <span class="step-dot" data-step="3"></span>
-            <span class="step-dot" data-step="4"></span>
+        <div class="editor-btns">
+            <button class="btn-cancel" onclick="closeEditor()">Cancel</button>
+            <button class="btn-primary" onclick="applyEdit()">Apply</button>
         </div>
     </div>
-</main>
-<script src="js/categoryData.js" type="module"></script>
-<script type="module" src="listing.js"></script>
+
+    <!-- Confirm -->
+    <div id="confirm-modal" class="modal">
+        <div class="confirm-box">
+            <div class="confirm-icon"><i class="fas fa-trash-alt"></i></div>
+            <h3 id="confirm-title">Delete?</h3>
+            <p id="confirm-msg">This cannot be undone.</p>
+            <div class="confirm-btns">
+                <button class="btn-cancel" onclick="hideConfirm()">Cancel</button>
+                <button class="btn-danger" id="confirm-yes">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Draft -->
+    <div id="draft-modal" class="modal">
+        <div class="confirm-box">
+            <div class="confirm-icon info"><i class="fas fa-file-alt"></i></div>
+            <h3>Resume Draft?</h3>
+            <p id="draft-msg">Continue where you left off?</p>
+            <div class="confirm-btns">
+                <button class="btn-cancel" id="draft-no">Start Fresh</button>
+                <button class="btn-primary" id="draft-yes">Continue</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="listing.js"></script>
 </body>
 </html>

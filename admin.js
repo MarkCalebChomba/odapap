@@ -1,10 +1,13 @@
 import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
-import { getFirestore, collection, query, where, getDocs, getDoc, doc, updateDoc, orderBy, limit, startAfter, Timestamp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+import { getFirestore, collection, query, where, getDocs, getDoc, doc, updateDoc, deleteDoc, setDoc, orderBy, limit, startAfter, Timestamp, addDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
 import { app } from './js/firebase.js';
 import { showNotification } from './notifications.js';
 
 const auth = getAuth(app);
 const db = getFirestore(app);
+
+// Allowed admin emails - admin@odapap.com is the master admin
+const MASTER_ADMIN_EMAIL = 'admin@odapap.com';
 
 class AdminDashboard {
     constructor() {
@@ -15,6 +18,7 @@ class AdminDashboard {
         this.orders = [];
         this.users = [];
         this.products = [];
+        this.isMasterAdmin = false;
         
         this.initializeAuth();
         this.setupEventListeners();
@@ -28,9 +32,9 @@ class AdminDashboard {
             }
 
             // Check if user is admin
-            const isAdmin = await this.checkAdminStatus(user.uid);
+            const isAdmin = await this.checkAdminStatus(user.email, user.uid);
             if (!isAdmin) {
-                showNotification('Access denied. Admin privileges required.');
+                showNotification('Access denied. Admin privileges required.', 'error');
                 setTimeout(() => {
                     window.location.href = 'index.html';
                 }, 2000);
@@ -38,15 +42,34 @@ class AdminDashboard {
             }
 
             this.currentUser = user;
+            this.isMasterAdmin = user.email === MASTER_ADMIN_EMAIL;
             await this.loadAdminProfile();
             await this.loadDashboardData();
         });
     }
 
-    async checkAdminStatus(uid) {
+    async checkAdminStatus(email, uid) {
         try {
-            const adminDoc = await getDoc(doc(db, "Admins", uid));
-            return adminDoc.exists() && adminDoc.data().role === 'admin';
+            // Master admin always has access
+            if (email === MASTER_ADMIN_EMAIL) {
+                // Ensure master admin document exists
+                const masterAdminRef = doc(db, "Admins", uid);
+                const masterAdminDoc = await getDoc(masterAdminRef);
+                if (!masterAdminDoc.exists()) {
+                    await setDoc(masterAdminRef, {
+                        email: MASTER_ADMIN_EMAIL,
+                        role: 'master_admin',
+                        createdAt: Timestamp.now(),
+                        permissions: ['all']
+                    });
+                }
+                return true;
+            }
+            
+            // Check if email is in allowed admins collection
+            const adminQuery = query(collection(db, "Admins"), where("email", "==", email));
+            const adminSnapshot = await getDocs(adminQuery);
+            return !adminSnapshot.empty;
         } catch (error) {
             console.error('Error checking admin status:', error);
             return false;
@@ -58,7 +81,9 @@ class AdminDashboard {
             const userDoc = await getDoc(doc(db, "Users", this.currentUser.uid));
             if (userDoc.exists()) {
                 const userData = userDoc.data();
-                document.getElementById('adminName').textContent = userData.name || 'Admin';
+                document.getElementById('adminName').textContent = userData.name || this.currentUser.email;
+            } else {
+                document.getElementById('adminName').textContent = this.currentUser.email;
             }
         } catch (error) {
             console.error('Error loading admin profile:', error);
@@ -140,6 +165,9 @@ class AdminDashboard {
                 break;
             case 'analytics':
                 this.loadAnalytics();
+                break;
+            case 'settings':
+                this.loadAdminList();
                 break;
         }
     }
@@ -485,23 +513,234 @@ class AdminDashboard {
             // Get user's listing count
             const listingsQuery = query(collection(db, "Listings"), where("uploaderId", "==", user.id));
             const listingsSnapshot = await getDocs(listingsQuery);
-            
-            // Get user's order count
-            const ordersQuery = query(collection(db, "Orders"), where("userId", "==", user.id));
-            const ordersSnapshot = await getDocs(ordersQuery);
 
             const row = document.createElement('tr');
             row.innerHTML = `
-                <td class="text-small">${user.id.slice(0, 8)}...</td>
-                <td>${user.name || 'N/A'}</td>
+                <td>
+                    <div class="user-cell">
+                        <img src="${user.profilePicUrl || 'images/profile-placeholder.png'}" alt="${user.name}" class="user-avatar">
+                        <div>
+                            <strong>${user.name || 'N/A'}</strong>
+                            <span class="text-small">${user.id.slice(0, 8)}...</span>
+                        </div>
+                    </div>
+                </td>
                 <td>${user.email || 'N/A'}</td>
-                <td>${user.phoneNumber || 'N/A'}</td>
-                <td>${user.county || 'N/A'}, ${user.ward || 'N/A'}</td>
+                <td>${user.phoneNumber || user.phone || 'N/A'}</td>
+                <td>${user.county || 'N/A'}</td>
                 <td>${listingsSnapshot.size}</td>
-                <td>${ordersSnapshot.size}</td>
+                <td>
+                    <span class="badge ${user.isVerified ? 'verified' : 'unverified'}">
+                        ${user.isVerified ? '<i class="fas fa-check-circle"></i> Verified' : 'Not Verified'}
+                    </span>
+                </td>
                 <td class="text-small">${user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}</td>
+                <td>
+                    <div class="action-buttons">
+                        <button class="btn-icon ${user.isVerified ? 'btn-warning' : 'btn-success'}" 
+                            onclick="adminDashboard.toggleVerification('${user.id}', ${user.isVerified || false})"
+                            title="${user.isVerified ? 'Remove Verification' : 'Verify Seller'}">
+                            <i class="fas fa-${user.isVerified ? 'times-circle' : 'check-circle'}"></i>
+                        </button>
+                        <button class="btn-icon btn-primary" onclick="adminDashboard.viewUserDetails('${user.id}')" title="View Details">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                        <button class="btn-icon btn-danger" onclick="adminDashboard.deleteUser('${user.id}')" title="Delete User">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </td>
             `;
             tbody.appendChild(row);
+        }
+    }
+
+    async toggleVerification(userId, currentStatus) {
+        const action = currentStatus ? 'remove verification from' : 'verify';
+        if (!confirm(`Are you sure you want to ${action} this seller?`)) return;
+        
+        try {
+            await updateDoc(doc(db, "Users", userId), {
+                isVerified: !currentStatus,
+                verifiedAt: !currentStatus ? Timestamp.now() : null,
+                verifiedBy: !currentStatus ? this.currentUser.uid : null
+            });
+            showNotification(`Seller ${currentStatus ? 'unverified' : 'verified'} successfully`);
+            await this.loadUserStats();
+            await this.loadUsers();
+        } catch (error) {
+            console.error('Error toggling verification:', error);
+            showNotification('Error updating verification status', 'error');
+        }
+    }
+
+    async viewUserDetails(userId) {
+        const user = this.users.find(u => u.id === userId);
+        if (!user) return;
+        
+        const modal = document.getElementById('orderDetailModal');
+        const content = document.getElementById('orderDetailContent');
+        
+        // Get user's listings
+        const listingsQuery = query(collection(db, "Listings"), where("uploaderId", "==", userId));
+        const listingsSnapshot = await getDocs(listingsQuery);
+        
+        // Get user's orders
+        const ordersQuery = query(collection(db, "Orders"), where("userId", "==", userId));
+        const ordersSnapshot = await getDocs(ordersQuery);
+        
+        content.innerHTML = `
+            <div class="order-detail-header">
+                <h2>User Details</h2>
+                <span class="badge ${user.isVerified ? 'verified' : 'unverified'}">
+                    ${user.isVerified ? '<i class="fas fa-check-circle"></i> Verified Seller' : 'Not Verified'}
+                </span>
+            </div>
+            <div class="user-detail-profile">
+                <img src="${user.profilePicUrl || 'images/profile-placeholder.png'}" alt="${user.name}" class="user-detail-avatar">
+                <div>
+                    <h3>${user.name || 'No Name'}</h3>
+                    <p>${user.email || 'No Email'}</p>
+                    <p>${user.phoneNumber || user.phone || 'No Phone'}</p>
+                </div>
+            </div>
+            <div class="order-detail-grid">
+                <div class="detail-section">
+                    <h3><i class="fas fa-map-marker-alt"></i> Location</h3>
+                    <p><strong>County:</strong> ${user.county || 'N/A'}</p>
+                    <p><strong>Sub-County:</strong> ${user.subCounty || 'N/A'}</p>
+                    <p><strong>Ward:</strong> ${user.ward || 'N/A'}</p>
+                </div>
+                <div class="detail-section">
+                    <h3><i class="fas fa-chart-bar"></i> Statistics</h3>
+                    <p><strong>Total Listings:</strong> ${listingsSnapshot.size}</p>
+                    <p><strong>Total Orders:</strong> ${ordersSnapshot.size}</p>
+                    <p><strong>Joined:</strong> ${user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}</p>
+                </div>
+            </div>
+        `;
+        modal.style.display = 'flex';
+    }
+
+    async deleteUser(userId) {
+        if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return;
+        if (!confirm('This will also delete all their listings. Continue?')) return;
+        
+        try {
+            // Delete user's listings
+            const listingsQuery = query(collection(db, "Listings"), where("uploaderId", "==", userId));
+            const listingsSnapshot = await getDocs(listingsQuery);
+            for (const docSnap of listingsSnapshot.docs) {
+                await deleteDoc(doc(db, "Listings", docSnap.id));
+            }
+            
+            // Delete user document
+            await deleteDoc(doc(db, "Users", userId));
+            
+            showNotification('User and their listings deleted successfully');
+            await this.loadUserStats();
+            await this.loadUsers();
+        } catch (error) {
+            console.error('Error deleting user:', error);
+            showNotification('Error deleting user', 'error');
+        }
+    }
+
+    // Admin Account Management
+    async addAdminAccount() {
+        if (!this.isMasterAdmin) {
+            showNotification('Only master admin can add new admins', 'error');
+            return;
+        }
+        
+        const emailInput = document.getElementById('newAdminEmail');
+        const email = emailInput.value.trim().toLowerCase();
+        
+        if (!email || !email.includes('@')) {
+            showNotification('Please enter a valid email', 'error');
+            return;
+        }
+        
+        try {
+            // Check if already admin
+            const existingQuery = query(collection(db, "Admins"), where("email", "==", email));
+            const existingSnapshot = await getDocs(existingQuery);
+            
+            if (!existingSnapshot.empty) {
+                showNotification('This email is already an admin', 'error');
+                return;
+            }
+            
+            // Add new admin
+            await addDoc(collection(db, "Admins"), {
+                email: email,
+                role: 'admin',
+                createdAt: Timestamp.now(),
+                addedBy: this.currentUser.email,
+                permissions: ['orders', 'products', 'users', 'verifications']
+            });
+            
+            emailInput.value = '';
+            showNotification('Admin account added successfully');
+            await this.loadAdminList();
+        } catch (error) {
+            console.error('Error adding admin:', error);
+            showNotification('Error adding admin account', 'error');
+        }
+    }
+
+    async removeAdminAccount(adminDocId, email) {
+        if (!this.isMasterAdmin) {
+            showNotification('Only master admin can remove admins', 'error');
+            return;
+        }
+        
+        if (email === MASTER_ADMIN_EMAIL) {
+            showNotification('Cannot remove master admin', 'error');
+            return;
+        }
+        
+        if (!confirm(`Remove admin privileges from ${email}?`)) return;
+        
+        try {
+            await deleteDoc(doc(db, "Admins", adminDocId));
+            showNotification('Admin account removed');
+            await this.loadAdminList();
+        } catch (error) {
+            console.error('Error removing admin:', error);
+            showNotification('Error removing admin', 'error');
+        }
+    }
+
+    async loadAdminList() {
+        const container = document.getElementById('adminList');
+        if (!container) return;
+        
+        try {
+            const adminsSnapshot = await getDocs(collection(db, "Admins"));
+            container.innerHTML = '<h4>Current Admins:</h4>';
+            
+            adminsSnapshot.forEach(docSnap => {
+                const admin = docSnap.data();
+                const isMaster = admin.email === MASTER_ADMIN_EMAIL;
+                const div = document.createElement('div');
+                div.className = 'admin-item';
+                div.innerHTML = `
+                    <span>
+                        <i class="fas fa-user-shield"></i>
+                        ${admin.email}
+                        ${isMaster ? '<span class="badge master">Master</span>' : ''}
+                    </span>
+                    ${!isMaster && this.isMasterAdmin ? `
+                        <button class="btn-icon btn-danger" onclick="adminDashboard.removeAdminAccount('${docSnap.id}', '${admin.email}')">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    ` : ''}
+                `;
+                container.appendChild(div);
+            });
+        } catch (error) {
+            console.error('Error loading admin list:', error);
         }
     }
 

@@ -217,14 +217,14 @@
                     <table class="data-table">
                         <thead>
                             <tr>
-                                <th>User ID</th>
-                                <th>Name</th>
+                                <th>User</th>
                                 <th>Email</th>
                                 <th>Phone</th>
                                 <th>Location</th>
                                 <th>Listings</th>
-                                <th>Orders</th>
+                                <th>Verified</th>
                                 <th>Joined</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="usersTableBody">
@@ -309,9 +309,37 @@
             <!-- Settings Section -->
             <section id="settings-section" class="content-section">
                 <h2>Settings</h2>
+                
+                <!-- Admin Management (Master Admin Only) -->
+                <div class="settings-card" id="adminManagement">
+                    <h3><i class="fas fa-user-shield"></i> Admin Account Management</h3>
+                    <p>Add or remove admin accounts (Master admin only)</p>
+                    
+                    <div class="admin-add-form">
+                        <input type="email" id="newAdminEmail" placeholder="Enter email to add as admin">
+                        <button class="btn-primary" onclick="adminDashboard.addAdminAccount()">
+                            <i class="fas fa-plus"></i> Add Admin
+                        </button>
+                    </div>
+                    
+                    <div id="adminList" class="admin-list">
+                        <!-- Admin list will be populated here -->
+                    </div>
+                </div>
+                
                 <div class="settings-card">
-                    <h3>System Configuration</h3>
+                    <h3><i class="fas fa-cog"></i> System Configuration</h3>
                     <p>Admin settings and configuration options</p>
+                    <div class="settings-options">
+                        <label class="setting-item">
+                            <span>Maintenance Mode</span>
+                            <input type="checkbox" id="maintenanceMode">
+                        </label>
+                        <label class="setting-item">
+                            <span>Enable New Registrations</span>
+                            <input type="checkbox" id="enableRegistrations" checked>
+                        </label>
+                    </div>
                 </div>
             </section>
         </div>

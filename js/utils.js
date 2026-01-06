@@ -37,46 +37,70 @@ export function animateIconToCart(button) {
 }
 
 export async function updateCartCounter(db, userId) {
-    const cartIcon = document.getElementById('cart-icon');
-    if (!cartIcon) return;
     const cartSnapshot = await getDocs(collection(db, `users/${userId}/cart`));
     const itemCount = cartSnapshot.size;
 
-    let counter = cartIcon.querySelector('.cart-notification');
-    if (!counter) {
-        counter = document.createElement('span');
-        counter.className = 'cart-notification';
-        cartIcon.appendChild(counter);
+    // Update old cart icon if exists
+    const cartIcon = document.getElementById('cart-icon');
+    if (cartIcon) {
+        let counter = cartIcon.querySelector('.cart-notification');
+        if (!counter) {
+            counter = document.createElement('span');
+            counter.className = 'cart-notification';
+            cartIcon.appendChild(counter);
+        }
+        counter.textContent = itemCount;
     }
-    counter.textContent = itemCount;
+    
+    // Update nav bar counter
+    const navCounter = document.getElementById('cart-count');
+    if (navCounter) {
+        navCounter.textContent = itemCount > 0 ? itemCount : '';
+    }
 }
 
 export async function updateWishlistCounter(db, userId) {
-    const wishlistIcon = document.getElementById('wishlist-icon');
-    if (!wishlistIcon) return;
     const wishlistSnapshot = await getDocs(collection(db, `users/${userId}/wishlist`));
     const itemCount = wishlistSnapshot.size;
 
-    let counter = wishlistIcon.querySelector('.cart-notification');
-    if (!counter) {
-        counter = document.createElement('span');
-        counter.className = 'cart-notification';
-        wishlistIcon.appendChild(counter);
+    // Update old wishlist icon if exists
+    const wishlistIcon = document.getElementById('wishlist-icon');
+    if (wishlistIcon) {
+        let counter = wishlistIcon.querySelector('.cart-notification');
+        if (!counter) {
+            counter = document.createElement('span');
+            counter.className = 'cart-notification';
+            wishlistIcon.appendChild(counter);
+        }
+        counter.textContent = itemCount;
     }
-    counter.textContent = itemCount;
+    
+    // Update nav bar counter
+    const navCounter = document.getElementById('wishlist-count');
+    if (navCounter) {
+        navCounter.textContent = itemCount > 0 ? itemCount : '';
+    }
 }
 
 export async function updateChatCounter(db, userId) {
-    const chatIcon = document.getElementById('notification-icon');
-    if (!chatIcon) return;
     const messagesSnapshot = await getDocs(query(collection(db, `Messages`), where("recipientId", "==", userId), where("status", "==", "sent")));
     const unreadCount = messagesSnapshot.size;
 
-    let counter = chatIcon.querySelector('.cart-notification');
-    if (!counter) {
-        counter = document.createElement('span');
-        counter.className = 'cart-notification';
-        chatIcon.appendChild(counter);
+    // Update old notification icon if exists
+    const chatIcon = document.getElementById('notification-icon');
+    if (chatIcon) {
+        let counter = chatIcon.querySelector('.cart-notification');
+        if (!counter) {
+            counter = document.createElement('span');
+            counter.className = 'cart-notification';
+            chatIcon.appendChild(counter);
+        }
+        counter.textContent = unreadCount;
     }
-    counter.textContent = unreadCount;
+    
+    // Update nav bar counter
+    const navCounter = document.getElementById('notification-count');
+    if (navCounter) {
+        navCounter.textContent = unreadCount > 0 ? unreadCount : '';
+    }
 }

@@ -1,197 +1,132 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/jpeg" href="images/logo.jpg">
-    <link rel="apple-touch-icon" href="images/logo.jpg">
-    <title>Oda Pap</title>
-    <link rel="stylesheet" href="styles.css" />
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css"
-    />
-    <script src="./js/firebase.js" type="module"></script>
-    <script src="index.js" type="module"></script>
-    <div id="loading-overlay">
-      <div class="loader">
-          <div class="loader-content">
-              <img 
-                  src="./assets/animations/loader.gif" 
-                  alt="Loading..." 
-                  class="loader-gif"
-                  onerror="this.style.display='none';this.nextElementSibling.style.display='block'"
-              >
-              <div class="fallback-loader">
-                  <div class="spinner"></div>
-              </div>
-              <p>Loading...</p>
-          </div>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Oda Pap - Kenya's leading B2B wholesale marketplace. Source quality products at wholesale prices from verified suppliers. Electronics, fashion, kitchenware, beauty products and more. No minimum orders, fast delivery across Kenya.">
+  <meta name="keywords" content="wholesale Kenya, bulk buying, B2B marketplace, wholesale electronics, wholesale fashion, reseller platform, supplier Kenya, trade prices">
+  <link rel="icon" type="image/jpeg" href="images/logo.jpg">
+  <link rel="apple-touch-icon" href="images/logo.jpg">
+  <title>Oda Pap - Wholesale Marketplace Kenya</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+  <script src="./js/firebase.js" type="module"></script>
+  <script src="index.js" type="module"></script>
+  <!-- Hidden SEO Content -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "Oda Pap",
+    "description": "Oda Pap is Kenya's premier B2B wholesale marketplace connecting retailers, resellers and businesses with verified suppliers offering quality products at wholesale prices. Browse thousands of products across categories including electronics, mobile phones, fashion, beauty, kitchenware, furniture and more. We facilitate bulk purchasing with no minimum order requirements, secure payment options, and reliable delivery services across Kenya. Whether you're a shop owner, market trader, or online reseller, Oda Pap helps you source inventory at competitive trade prices to maximize your profit margins.",
+    "url": "https://odapap.com"
+  }
+  </script>
+</head>
+<body>
+  <!-- Header -->
+  <header>
+    <div class="top-bar">
+      <div class="logo-container">
+        <img src="images/logo.jpg" alt="Oda Pap Logo" class="logo">
+        <span class="logo-text">Oda Pap</span>
       </div>
-  </div>
-    
-  </head>
-
-  <body>
-    <header>
-      <div class="top-bar">
-        <div class="logo-container">
-          <img src="images/logo.jpg" alt="Oda Pap Logo" class="logo" />
-          <span class="logo-text">Oda Pap</span>
+      <div class="search-container">
+        <form id="searchForm">
+          <input type="text" id="searchInput" placeholder="Search products...">
+          <button type="submit"><i class="fas fa-search"></i></button>
+        </form>
+      </div>
+      <div class="top-icons">
+        <div class="menu-icon" onclick="toggleMenu()">
+          <i class="fas fa-bars"></i>
+          <p>Menu</p>
         </div>
-
-        <div class="search-container">
-          <form id="searchForm">
-            <input type="text" id="searchInput" placeholder="Search..." />
-            <button type="submit"><i class="fas fa-search"></i></button>
-          </form>
-          <div id="searchSuggestions" class="suggestions">
-            <!-- Suggestions will be dynamically populated here -->
-          </div>
-        </div>
-
-        <div class="top-icons">
-          <div class="menu-icon" onclick="toggleMenu()">
-            <i class="fas fa-bars"></i>
-            <p>Menu</p>
-          </div>
-          <div class="dropdown-content" id="dropdown">
-            <!-- Categories loaded dynamically from categoryData.js -->
-          </div>
-
-          <script>
-            // Category icons mapping
-            const categoryMenuIcons = {
-              'student-centre': 'graduation-cap', 'electronics': 'tv', 'kitchenware': 'blender',
-              'furniture': 'couch', 'fashion': 'tshirt', 'beauty': 'heart', 'rentals': 'building',
-              'service-men': 'tools', 'foodstuffs': 'carrot', 'phones': 'mobile-alt',
-              'accessories': 'headphones', 'pharmaceutical': 'pills', 'kids': 'hat-wizard'
-            };
-            
-            // Load categories dynamically
-            function loadDropdownCategories() {
-              const dropdown = document.getElementById('dropdown');
-              const categories = [
-                'student-centre', 'electronics', 'kitchenware', 'furniture', 'fashion',
-                'beauty', 'rentals', 'service-men', 'foodstuffs', 'phones', 'accessories',
-                'pharmaceutical', 'kids'
-              ];
-              const labels = {
-                'student-centre': 'Student Centre', 'electronics': 'Electronics', 'kitchenware': 'Kitchenware',
-                'furniture': 'Furniture', 'fashion': 'Fashion', 'beauty': 'Beauty', 'rentals': 'Rentals',
-                'service-men': 'Service Men', 'foodstuffs': 'Foodstuffs', 'phones': 'Phones',
-                'accessories': 'Accessories', 'pharmaceutical': 'Pharmaceutical', 'kids': 'Kids'
-              };
-              
-              categories.forEach(cat => {
-                const link = document.createElement('a');
-                link.href = `category.html?category=${cat}`;
-                link.className = 'category';
-                link.innerHTML = `<i class="fas fa-${categoryMenuIcons[cat]}"></i><p>${labels[cat]}</p>`;
-                dropdown.appendChild(link);
-              });
-            }
-            
-            loadDropdownCategories();
-            
-            function toggleMenu() {
-              var dropdown = document.getElementById("dropdown");
-              dropdown.style.display = dropdown.style.display === "block" ? "none" : "block";
-            }
-
-            window.onclick = function (event) {
-              if (!event.target.matches(".menu-icon") && !event.target.matches(".menu-icon *")) {
-                var dropdown = document.getElementById("dropdown");
-                if (dropdown.style.display === "block") {
-                  dropdown.style.display = "none";
-                }
-              }
-            };
-          </script>
+        <div class="dropdown-content" id="dropdown">
+          <a href="category.html?category=student-centre" class="category"><i class="fas fa-graduation-cap"></i><p>Student</p></a>
+          <a href="category.html?category=electronics" class="category"><i class="fas fa-tv"></i><p>Electronics</p></a>
+          <a href="category.html?category=kitchenware" class="category"><i class="fas fa-blender"></i><p>Kitchen</p></a>
+          <a href="category.html?category=furniture" class="category"><i class="fas fa-couch"></i><p>Furniture</p></a>
+          <a href="category.html?category=fashion" class="category"><i class="fas fa-tshirt"></i><p>Fashion</p></a>
+          <a href="category.html?category=beauty" class="category"><i class="fas fa-heart"></i><p>Beauty</p></a>
+          <a href="category.html?category=rentals" class="category"><i class="fas fa-building"></i><p>Rentals</p></a>
+          <a href="category.html?category=service-men" class="category"><i class="fas fa-tools"></i><p>Services</p></a>
+          <a href="category.html?category=foodstuffs" class="category"><i class="fas fa-carrot"></i><p>Food</p></a>
+          <a href="category.html?category=phones" class="category"><i class="fas fa-mobile-alt"></i><p>Phones</p></a>
+          <a href="category.html?category=accessories" class="category"><i class="fas fa-headphones"></i><p>Accessories</p></a>
+          <a href="category.html?category=pharmaceutical" class="category"><i class="fas fa-pills"></i><p>Pharma</p></a>
         </div>
       </div>
+    </div>
+    <div class="border-line"></div>
+    <nav class="nav-bar">
+      <button class="home-button" onclick="location.href='index.html'"><i class="fas fa-home"></i></button>
+      <button class="home-button" onclick="location.href='notification.html'"><i class="fas fa-bell"></i><span id="notification-count" class="nav-counter"></span></button>
+      <button class="home-button" onclick="location.href='cart.html'"><i class="fas fa-shopping-cart"></i><span id="cart-count" class="nav-counter"></span></button>
+      <button class="home-button" onclick="location.href='wishlist.html'"><i class="fas fa-heart"></i><span id="wishlist-count" class="nav-counter"></span></button>
+      <button class="home-button" onclick="location.href='profile.html'"><i class="fas fa-user-circle"></i></button>
+    </nav>
+  </header>
 
-      <div class="border-line"></div>
-      <div class="nav-bar" id="nav-bar">
-        <button class="home-button" onclick="location.href='index.html'">
-          <i class="fas fa-home"></i>
-          <p>HOME</p>
-        </button>
-
-        <button class="home-button" onclick="location.href='notification.html'" style="position: relative;">
-          <i class="fas fa-bell" id="notification-icon"></i>
-          <span class="cart-notification"></span>
-          <p>CHAT</p>
-        </button>
-        <button class="home-button" onclick="location.href='cart.html'" style="position: relative;">
-          <i class="fas fa-shopping-cart" id="cart-icon"></i>
-          <span class="cart-notification"></span>
-          <p>CART</p>
-        </button>
-        <button class="home-button" onclick="location.href='wishlist.html'" style="position: relative;">
-          <i class="fas fa-heart" id="wishlist-icon"></i>
-          <span class="cart-notification"></span>
-          <p>WISHLIST</p>
-        </button>
-        <button class="home-button" onclick="location.href='profile.html'" style="position: relative;">
-          <i class="fas fa-user-circle"></i>
-          <span id="profile-notification" class="blinking-notification" style="display: none;"></span>
-          <p>PROFILE</p>
-        </button>
+  <main>
+    <!-- Hero Section -->
+    <section class="hero">
+      <div class="hero-content">
+        <h1>Source. Stock. Sell.</h1>
+        <p>Get wholesale prices on quality products. Perfect for resellers & businesses.</p>
+        <div class="hero-badges">
+          <span><i class="fas fa-check-circle"></i> Verified Suppliers</span>
+          <span><i class="fas fa-truck"></i> Nationwide Delivery</span>
+          <span><i class="fas fa-hand-holding-usd"></i> Trade Prices</span>
+        </div>
       </div>
-    </header>
+    </section>
 
-    <main>
-      <!-- UPDATED: Scrollable Category Strip -->
-      <section class="category-strip-section">
+    <!-- Auth Status -->
+    <div id="auth-status" class="auth-bar"></div>
+
+    <!-- Categories Strip -->
+    <section class="cat-section">
+      <div class="section-head">
         <h2>Shop by Category</h2>
-        <div class="category-strip-wrapper">
-          <button class="scroll-btn scroll-left" onclick="scrollCategories(-1)">
-            <i class="fas fa-chevron-left"></i>
-          </button>
-          <div class="category-strip" id="categoryStrip">
-            <!-- Category cards will be dynamically inserted here -->
-          </div>
-          <button class="scroll-btn scroll-right" onclick="scrollCategories(1)">
-            <i class="fas fa-chevron-right"></i>
-          </button>
-        </div>
-      </section>
-
-      <div class="border-line"></div>
-
-      <nav>
-        <div id="auth-status" class="auth-status-bar">
-          <!-- Auth status populated by JavaScript -->
-        </div>
-      </nav>
-
-      <!-- Featured Products Section -->
-      <section class="featured-products">
-        <h2>Featured Products</h2>
-        <div class="gallery listings-container" id="listings-container">
-          <!-- Listings will be dynamically inserted here -->
-        </div>
-      </section>
-    </main>
-    
-    <footer>
-      <button class="floating-button" onclick="location.href='listing.html'">
-        <i class="fas fa-plus"></i>
-        <span class="button-text">Sell Now</span>
-      </button>
-      
-      <p>&copy; 2024 Oda Pap. All Rights Reserved.</p>
-      <div class="footer-content">
-          <h3>Follow Us</h3>
-          <ul class="socials">
-              <li><a href="https://www.facebook.com/yourprofile" target="_blank"><i class="fab fa-facebook-f"></i></a></li>
-              <li><a href="https://www.twitter.com/yourprofile" target="_blank"><i class="fab fa-twitter"></i></a></li>
-              <li><a href="https://www.instagram.com/yourprofile" target="_blank"><i class="fab fa-instagram"></i></a></li>
-              <li><a href="https://www.linkedin.com/in/yourprofile" target="_blank"><i class="fab fa-linkedin-in"></i></a></li>
-              <li><a href="https://www.pinterest.com/yourprofile" target="_blank"><i class="fab fa-pinterest"></i></a></li>
-          </ul>
       </div>
-    </footer>
-  </body>
+      <div class="cat-strip" id="categoryStrip"></div>
+    </section>
+
+    <!-- Products Grid -->
+    <section class="gallery">
+      <div class="filter-bar">
+        <h2>All Products</h2>
+        <select id="sortSelect" class="sort-select">
+          <option value="newest">Newest</option>
+          <option value="price-low">Price: Low to High</option>
+          <option value="price-high">Price: High to Low</option>
+          <option value="profit">Best Margin</option>
+        </select>
+      </div>
+      <div class="listings-container" id="listings-container"></div>
+    </section>
+  </main>
+
+  <!-- Sell Button -->
+  <footer>
+    <button class="floating-button" onclick="location.href='listing.html'">
+      <i class="fas fa-plus"></i>
+    </button>
+    <p>&copy; 2024 Oda Pap Wholesale. All Rights Reserved.</p>
+  </footer>
+
+  <script>
+    function toggleMenu() {
+      const dropdown = document.getElementById('dropdown');
+      dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+    }
+    window.onclick = function(event) {
+      if (!event.target.matches('.menu-icon') && !event.target.matches('.menu-icon *')) {
+        const dropdown = document.getElementById('dropdown');
+        if (dropdown.style.display === 'block') dropdown.style.display = 'none';
+      }
+    };
+  </script>
+</body>
 </html>

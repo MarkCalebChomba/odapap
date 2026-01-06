@@ -433,42 +433,47 @@ industrial: {
     }
 }
 };
-// Brands by category
+// Brands by category - Kenya Market Focus
 const brandsByCategory = {
-fashion: ["Custom/Other", "Nike", "Adidas", "Puma", "Under Armour", "Reebok", "New Balance", "Converse", "Vans", "Zara", "H&M", "Forever 21", "Gap", "Old Navy", "Uniqlo", "Levi's", "Wrangler", "Lee", "Diesel", "Calvin Klein", "Tommy Hilfiger", "Ralph Lauren", "Lacoste", "Hugo Boss", "Armani", "Gucci", "Prada", "Versace", "Burberry", "Louis Vuitton", "Chanel", "Dior", "Fendi", "Balenciaga", "Givenchy", "Valentino", "Dolce & Gabbana", "Mango", "Massimo Dutti", "Pull & Bear", "Bershka", "Stradivarius", "Reserved", "Primark", "Topshop", "River Island", "Next", "Marks & Spencer", "John Lewis", "Debenhams", "Generic"],
-electronics: ["Custom/Other", "Samsung", "Apple", "Sony", "LG", "Panasonic", "Philips", "Bosch", "Siemens", "Whirlpool", "Hitachi", "Toshiba", "Sharp", "JBL", "Bose", "Beats", "Sennheiser", "Audio-Technica", "Anker", "Belkin", "Logitech", "HP", "Dell", "Lenovo", "Asus", "Acer", "Microsoft", "Canon", "Nikon", "Fujifilm", "GoPro", "DJI", "Sandisk", "Western Digital", "Seagate", "Kingston", "Corsair", "Razer", "SteelSeries", "HyperX", "Netgear", "TP-Link", "D-Link", "Xiaomi", "Huawei", "OnePlus", "Realme", "Oppo", "Vivo", "Generic"],
+fashion: ["Generic", "Nike", "Adidas", "Puma", "Reebok", "Converse", "Vans", "Levi's", "Calvin Klein", "Tommy Hilfiger", "Lacoste", "Mr Price", "Woolworths", "Game", "Bata", "Serengeti", "Kiko Romeo", "Soko", "KikoRomeo", "Custom/Other"],
 
-phones: ["Custom/Other", "Apple", "Samsung", "Huawei", "Xiaomi", "Oppo", "Vivo", "OnePlus", "Realme", "Google", "Motorola", "Nokia", "Sony", "LG", "HTC", "Asus", "Lenovo", "ZTE", "Tecno", "Infinix", "Itel", "Blackberry", "Alcatel", "Meizu", "Honor", "Nothing", "Generic"],
+electronics: ["Generic", "Samsung", "LG", "Sony", "Hisense", "TCL", "Philips", "JBL", "Oraimo", "Anker", "Logitech", "HP", "Dell", "Lenovo", "Asus", "Acer", "Canon", "Sandisk", "Transcend", "TP-Link", "Xiaomi", "Huawei", "Custom/Other"],
 
-beauty: ["Custom/Other", "L'Oreal", "Maybelline", "Revlon", "Covergirl", "MAC", "Estee Lauder", "Clinique", "Lancome", "Dior", "Chanel", "YSL", "NARS", "Urban Decay", "Benefit", "Too Faced", "Anastasia Beverly Hills", "Fenty Beauty", "Huda Beauty", "NYX", "e.l.f", "Wet n Wild", "Milani", "Neutrogena", "Cetaphil", "Cerave", "La Roche-Posay", "Vichy", "Bioderma", "The Ordinary", "Paula's Choice", "Drunk Elephant", "Glossier", "Tatcha", "SK-II", "Shiseido", "Olay", "Nivea", "Dove", "Vaseline", "Garnier", "Pantene", "Head & Shoulders", "Herbal Essences", "Tresemme", "Dove", "Sunsilk", "Schwarzkopf", "L'Oreal Paris", "Kerastase", "Redken", "Paul Mitchell", "Moroccanoil", "Generic"],
+phones: ["Generic", "Samsung", "Apple", "Tecno", "Infinix", "Itel", "Nokia", "Xiaomi", "Huawei", "Oppo", "Vivo", "Realme", "Motorola", "Hot", "Spark", "Camon", "Custom/Other"],
 
-health: ["Custom/Other", "Centrum", "Nature Made", "Nature's Bounty", "GNC", "Optimum Nutrition", "Muscletech", "BSN", "Cellucor", "Dymatize", "Myprotein", "Universal Nutrition", "MusclePh arm", "Quest Nutrition", "Garden of Life", "NOW Foods", "Solgar", "Vitabiotics", "Blackmores", "Swisse", "Himalaya", "Dabur", "Patanjali", "Baidyanath", "Hamdard", "Abbott", "Johnson & Johnson", "Pfizer", "Bayer", "GSK", "Reckitt", "Generic"],
+beauty: ["Generic", "L'Oreal", "Maybelline", "Nivea", "Dove", "Vaseline", "Garnier", "Pantene", "Dark & Lovely", "Nice & Lovely", "Movit", "Black Opal", "HASK", "Cantu", "Shea Moisture", "African Pride", "Darling", "Softsheen Carson", "Amara", "Bio Oil", "Palmer's", "Custom/Other"],
 
-kitchenware: ["Custom/Other", "Tefal", "Prestige", "Hawkins", "Pigeon", "Wonderchef", "Meyer", "Calphalon", "Cuisinart", "All-Clad", "Le Creuset", "Lodge", "Staub", "Circulon", "KitchenAid", "Cuisinart", "Breville", "De'Longhi", "Philips", "Oster", "Hamilton Beach", "Black+Decker", "Kenwood", "Bosch", "Braun", "Ninja", "NutriBullet", "Vitamix", "Nespresso", "Keurig", "Mr. Coffee", "Pyrex", "Corningware", "Tupperware", "Rubbermaid", "OXO", "Joseph Joseph", "Lakeland", "Generic"],
+health: ["Generic", "Centrum", "Nature's Bounty", "Himalaya", "Dabur", "GSK", "Pfizer", "Bayer", "Abbott", "Johnson & Johnson", "Dettol", "Savlon", "Custom/Other"],
 
-furniture: ["Custom/Other", "IKEA", "Ashley Furniture", "Wayfair", "West Elm", "Pottery Barn", "Crate & Barrel", "Restoration Hardware", "CB2", "Room & Board", "Ethan Allen", "La-Z-Boy", "Haverty's", "Rooms To Go", "Bob's Discount Furniture", "Value City Furniture", "American Signature", "Jerome's", "Living Spaces", "Havertys", "Generic"],
+home: ["Generic", "Hotpoint", "Ramtons", "Von", "Mika", "Armco", "Sayona", "Nunix", "Roch", "Lyons", "Sokoo", "Custom/Other"],
 
-appliances: ["Custom/Other", "Whirlpool", "LG", "Samsung", "Bosch", "Siemens", "Electrolux", "Miele", "KitchenAid", "GE", "Frigidaire", "Maytag", "Kenmore", "Hotpoint", "Haier", "Midea", "Hisense", "TCL", "Godrej", "IFB", "Voltas", "Blue Star", "Lloyd", "Carrier", "Daikin", "Mitsubishi", "Hitachi", "Panasonic", "Sharp", "Dyson", "Hoover", "Bissell", "Shark", "Eureka", "Rowenta", "Tefal", "Philips", "Morphy Richards", "Kenwood", "Generic"],
+kitchenware: ["Generic", "Prestige", "Tefal", "Pyrex", "Tupperware", "Luminarc", "Anchor", "Royalford", "Philips", "Kenwood", "Black+Decker", "Blender", "Custom/Other"],
 
-baby: ["Custom/Other", "Pampers", "Huggies", "Johnson & Johnson", "Johnsons Baby", "Cetaphil Baby", "Aveeno Baby", "Mustela", "Chicco", "Graco", "Britax", "Evenflo", "Safety 1st", "Fisher-Price", "Little Tikes", "Melissa & Doug", "VTech", "LeapFrog", "Baby Einstein", "Skip Hop", "Munchkin", "Philips Avent", "Tommee Tippee", "Dr. Brown's", "Medela", "Spectra", "Lansinoh", "Boppy", "Ergobaby", "BabyBjorn", "Infantino", "Bumbo", "Maxi-Cosi", "Nuna", "UPPAbaby", "Bugaboo", "Stokke", "Generic"],
+furniture: ["Generic", "Victoria Courts", "Furniture Palace", "Ashley", "Furniture Elegance", "Wood Art", "Homestyle", "Delight Furniture", "Custom/Other"],
 
-sports: ["Custom/Other", "Nike", "Adidas", "Puma", "Under Armour", "Reebok", "New Balance", "Asics", "Mizuno", "Saucony", "Brooks", "Hoka", "Salomon", "Columbia", "The North Face", "Patagonia", "Arc'teryx", "Mammut", "Black Diamond", "REI", "Decathlon", "Quechua", "Domyos", "Kipsta", "Wilson", "Spalding", "Rawlings", "Easton", "Louisville Slugger", "Head", "Babolat", "Yonex", "Li-Ning", "Victor", "Dunlop", "Penn", "Callaway", "TaylorMade", "Titleist", "Ping", "Cobra", "Mizuno", "Srixon", "Bridgestone", "Trek", "Giant", "Specialized", "Cannondale", "Scott", "Merida", "Bianchi", "Shimano", "SRAM", "Generic"],
+appliances: ["Generic", "LG", "Samsung", "Hisense", "TCL", "Ramtons", "Von", "Mika", "Hotpoint", "Armco", "Bruhm", "Beko", "Haier", "Midea", "Nunix", "Custom/Other"],
 
-automotive: ["Custom/Other", "Bosch", "3M", "Michelin", "Goodyear", "Bridgestone", "Pirelli", "Continental", "Dunlop", "Yokohama", "Hankook", "BFGoodrich", "Castrol", "Mobil", "Shell", "Valvoline", "Pennzoil", "Meguiar's", "Turtle Wax", "Chemical Guys", "Mothers", "Armor All", "Rain-X", "WeatherTech", "Husky Liners", "Garmin", "TomTom", "Pioneer", "Kenwood", "Alpine", "JBL", "Sony", "Blaupunkt", "Nextbase", "BlackVue", "Thinkware", "Generic"],
+baby: ["Generic", "Pampers", "Huggies", "Molfix", "Softcare", "Johnson's Baby", "Cussons Baby", "Chicco", "Fisher-Price", "Avent", "Tommee Tippee", "Bambino", "Custom/Other"],
 
-books: ["Custom/Other", "Penguin Random House", "HarperCollins", "Simon & Schuster", "Macmillan", "Hachette", "Scholastic", "Oxford University Press", "Cambridge University Press", "McGraw-Hill", "Pearson", "Wiley", "Elsevier", "Springer", "Marvel", "DC Comics", "Dark Horse", "Image Comics", "IDW", "Viz Media", "Kodansha", "Shueisha", "Generic"],
+sports: ["Generic", "Nike", "Adidas", "Puma", "Under Armour", "Reebok", "Decathlon", "Speedo", "Wilson", "Spalding", "Custom/Other"],
 
-groceries: ["Custom/Other", "Coca-Cola", "Pepsi", "Nestle", "Cadbury", "Mars", "Ferrero", "Lindt", "Hershey's", "Toblerone", "Kit Kat", "Snickers", "M&Ms", "Twix", "Milka", "Lay's", "Pringles", "Doritos", "Cheetos", "Ruffles", "Tostitos", "Oreo", "Ritz", "Nabisco", "Kellogg's", "General Mills", "Quaker", "Post", "Nestle", "Lipton", "Tetley", "Twinings", "Yorkshire Tea", "PG Tips", "Nescafe", "Folgers", "Maxwell House", "Starbucks", "Lavazza", "Illy", "Generic"],
+automotive: ["Generic", "Bosch", "Total", "Shell", "Castrol", "Michelin", "Goodyear", "Bridgestone", "Continental", "Dunlop", "Hankook", "Firestone", "Pioneer", "JVC", "Custom/Other"],
 
-pets: ["Custom/Other", "Pedigree", "Royal Canin", "Purina", "Hill's Science Diet", "Blue Buffalo", "Iams", "Eukanuba", "Nutro", "Wellness", "Taste of the Wild", "Orijen", "Acana", "Merrick", "Whiskas", "Friskies", "Fancy Feast", "Sheba", "9Lives", "Meow Mix", "Kong", "Chuckit", "Nylabone", "Outward Hound", "Petmate", "Ferplast", "Trixie", "Generic"],
+books: ["Generic", "Oxford University Press", "Cambridge University Press", "Longhorn", "East African Publishers", "Phoenix Publishers", "Jomo Kenyatta Foundation", "Kenya Literature Bureau", "Storymoja", "Custom/Other"],
 
-jewelry: ["Custom/Other", "Tiffany & Co", "Cartier", "Bulgari", "Van Cleef & Arpels", "Harry Winston", "Chopard", "Graff", "Boucheron", "Piaget", "Buccellati", "David Yurman", "Pandora", "Swarovski", "Alex and Ani", "James Avery", "Kay Jewelers", "Zales", "Jared", "Blue Nile", "Brilliant Earth", "Rolex", "Patek Philippe", "Audemars Piguet", "Omega", "TAG Heuer", "Breitling", "IWC", "Jaeger-LeCoultre", "Panerai", "Hublot", "Zenith", "Longines", "Tissot", "Hamilton", "Seiko", "Citizen", "Casio", "Timex", "Fossil", "Michael Kors", "Guess", "Nixon", "G-Shock", "Fitbit", "Garmin", "Generic"],
+groceries: ["Generic", "Coca-Cola", "Pepsi", "Brookside", "New KCC", "Delmonte", "Ketepa", "Dormans", "Nestle", "Cadbury", "Tropical Heat", "Excel", "Procter & Gamble", "Bidco", "Pwani Oil", "Menengai", "Weetabix", "Nescafe", "Custom/Other"],
 
-office: ["Custom/Other", "HP", "Canon", "Epson", "Brother", "Xerox", "Ricoh", "Konica Minolta", "Sharp", "Kyocera", "Lexmark", "Dell", "Fellowes", "Swingline", "Scotch", "3M", "Post-it", "Sharpie", "BIC", "Pilot", "Pentel", "Uni-ball", "Parker", "Waterman", "Cross", "Lamy", "Montblanc", "Moleskine", "Leuchtturm1917", "Rhodia", "Clairefontaine", "Five Star", "Mead", "Staples", "Office Depot", "Generic"],
+"food-beverages": ["Generic", "Brookside", "New KCC", "Delmonte", "Ketepa", "Dormans", "Nestle", "Coca-Cola", "Pepsi", "Tropical Heat", "Excel", "Bidco", "Pwani Oil", "Menengai", "Farmer's Choice", "Kenchic", "Custom/Other"],
 
-garden: ["Custom/Other", "Scotts", "Miracle-Gro", "Roundup", "Ortho", "Bayer", "Bonide", "Safer Brand", "Espoma", "Jobe's", "FoxFarm", "Black Gold", "Promix", "Fiskars", "Corona", "Felco", "Gardena", "Husqvarna", "Stihl", "Black+Decker", "Toro", "Ryobi", "Greenworks", "EGO", "Weber", "Char-Broil", "Traeger", "Big Green Egg", "Kamado Joe", "Generic"],
+pets: ["Generic", "Pedigree", "Royal Canin", "Purina", "Whiskas", "Friskies", "Dog Chow", "Custom/Other"],
 
-industrial: ["Custom/Other", "DeWalt", "Makita", "Milwaukee", "Bosch", "Hitachi", "Ryobi", "Black+Decker", "Craftsman", "Stanley", "Irwin", "Klein Tools", "Channellock", "Knipex", "Wera", "Wiha", "Snap-on", "Mac Tools", "Matco", "Bahco", "Facom", "Gedore", "3M", "Honeywell", "MSA", "Moldex", "Uvex", "Ansell", "Mechanix", "Carhartt", "Dickies", "Generic"]
+jewelry: ["Generic", "Swarovski", "Pandora", "Casio", "Seiko", "Citizen", "Timex", "Fossil", "Custom/Other"],
+
+office: ["Generic", "HP", "Canon", "Epson", "Brother", "BIC", "Pilot", "Staedtler", "Herlitz", "Counter Book", "Custom/Other"],
+
+garden: ["Generic", "Stihl", "Black+Decker", "Makita", "Ryobi", "Husqvarna", "Osho Chemicals", "Bayer", "Custom/Other"],
+
+industrial: ["Generic", "DeWalt", "Makita", "Bosch", "Stanley", "Black+Decker", "Ingco", "Total Tools", "Tolsen", "Custom/Other"]
 };
 
 // Export for use in other modules

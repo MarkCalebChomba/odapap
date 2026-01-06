@@ -718,4 +718,3 @@ async function handleWishlist(listingId) {
         showNotification("Failed to add item to wishlist. Please try again.");
     }
 }
-

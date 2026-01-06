@@ -108,11 +108,11 @@
                 <button class="tab-btn active" data-tab="items">
                     <i class="fas fa-box"></i> Items (<span id="tabItemsCount">0</span>)
                 </button>
+                <button class="tab-btn" data-tab="orders">
+                    <i class="fas fa-shopping-bag"></i> Orders
+                </button>
                 <button class="tab-btn" data-tab="reviews">
                     <i class="fas fa-star"></i> Reviews
-                </button>
-                <button class="tab-btn" data-tab="about">
-                    <i class="fas fa-info-circle"></i> About
                 </button>
                 <button class="tab-btn" id="manageBtn" data-tab="manage" style="display: none;">
                     <i class="fas fa-cogs"></i> Manage
@@ -138,6 +138,27 @@
             </div>
         </section>
 
+        <!-- Tab Content: Orders -->
+        <section class="tab-content" id="orders-tab">
+            <div class="section-header">
+                <h2>Order History</h2>
+                <div class="order-filter-tabs">
+                    <button class="filter-btn active" data-filter="all">All</button>
+                    <button class="filter-btn" data-filter="pending">Pending</button>
+                    <button class="filter-btn" data-filter="delivered">Delivered</button>
+                </div>
+            </div>
+            <div id="ordersList" class="orders-list">
+                <!-- Orders will be dynamically inserted here -->
+            </div>
+            <div id="emptyOrders" class="empty-state" style="display: none;">
+                <i class="fas fa-shopping-bag"></i>
+                <h3>No orders yet</h3>
+                <p>Your order history will appear here</p>
+                <a href="index.html" class="btn-primary">Start Shopping</a>
+            </div>
+        </section>
+
         <!-- Tab Content: Reviews -->
         <section class="tab-content" id="reviews-tab">
             <div class="section-header">
@@ -145,32 +166,6 @@
             </div>
             <div id="reviewsList" class="reviews-list">
                 <!-- Reviews will be dynamically inserted here -->
-            </div>
-        </section>
-
-        <!-- Tab Content: About -->
-        <section class="tab-content" id="about-tab">
-            <div class="section-header">
-                <h2>About This Seller</h2>
-            </div>
-            <div class="about-content">
-                <div class="about-item">
-                    <h3><i class="fas fa-envelope"></i> Contact</h3>
-                    <p id="userEmail">email@example.com</p>
-                    <p id="userPhone">+254 700 000 000</p>
-                </div>
-                <div class="about-item">
-                    <h3><i class="fas fa-info-circle"></i> About</h3>
-                    <p id="aboutText">No additional information provided</p>
-                </div>
-                <div class="about-item">
-                    <h3><i class="fas fa-handshake"></i> Seller Policies</h3>
-                    <ul id="policyList">
-                        <li>Fast Response Time</li>
-                        <li>Quality Guaranteed</li>
-                        <li>Secure Transactions</li>
-                    </ul>
-                </div>
             </div>
         </section>
 
