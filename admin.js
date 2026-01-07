@@ -122,6 +122,16 @@ class AdminDashboard {
             this.searchOrders(e.target.value);
         });
 
+        // Product search
+        document.getElementById('productSearch')?.addEventListener('input', (e) => {
+            this.searchProducts(e.target.value);
+        });
+
+        // User search
+        document.getElementById('userSearch')?.addEventListener('input', (e) => {
+            this.searchUsers(e.target.value);
+        });
+
         // Close modal
         document.querySelector('.close-modal')?.addEventListener('click', () => {
             document.getElementById('orderDetailModal').style.display = 'none';
@@ -235,8 +245,8 @@ class AdminDashboard {
     async loadUserStats() {
         try {
             const usersSnapshot = await getDocs(collection(db, "Users"));
-            document.getElementById('totalUsers').textContent = usersSnapshot.size;
             this.users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            document.getElementById('totalUsers').textContent = usersSnapshot.size;
         } catch (error) {
             console.error('Error loading user stats:', error);
         }
@@ -474,42 +484,36 @@ class AdminDashboard {
         this.displayOrders(filtered);
     }
 
-    async loadProducts() {
-        const grid = document.getElementById('productsGrid');
-        grid.innerHTML = '';
-
-        if (this.products.length === 0) {
-            grid.innerHTML = '<p style="text-align: center; color: #999; grid-column: 1/-1;">No products found</p>';
-            return;
-        }
-
-        this.products.forEach(product => {
-            const card = document.createElement('div');
-            card.className = 'product-card-admin';
-            card.innerHTML = `
-                <img src="${product.photoTraceUrl || product.imageUrls?.[0] || 'images/placeholder.png'}" alt="${product.name}">
-                <div class="product-info-admin">
-                    <h4>${product.name}</h4>
-                    <p class="product-brand">${product.brand || 'N/A'}</p>
-                    <p class="product-price">KES ${product.price.toLocaleString()}</p>
-                    <p class="product-stock">Stock: ${product.totalStock || 0}</p>
-                    <p class="text-small">Category: ${product.category}</p>
-                </div>
-            `;
-            grid.appendChild(card);
-        });
+    searchProducts(searchTerm) {
+        const filtered = this.products.filter(product =>
+            product.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            product.brand?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            product.category?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            product.sellerInfo?.name?.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+        this.displayProducts(filtered);
     }
 
-    async loadUsers() {
+    searchUsers(searchTerm) {
+        const filtered = this.users.filter(user =>
+            user.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            user.phoneNumber?.includes(searchTerm) ||
+            user.phone?.includes(searchTerm)
+        );
+        this.displayUsers(filtered);
+    }
+
+    displayUsers(usersToDisplay = this.users) {
         const tbody = document.getElementById('usersTableBody');
         tbody.innerHTML = '';
 
-        if (this.users.length === 0) {
+        if (usersToDisplay.length === 0) {
             tbody.innerHTML = '<tr><td colspan="8" style="text-align: center;">No users found</td></tr>';
             return;
         }
 
-        for (const user of this.users) {
+        usersToDisplay.forEach(async (user) => {
             // Get user's listing count
             const listingsQuery = query(collection(db, "Listings"), where("uploaderId", "==", user.id));
             const listingsSnapshot = await getDocs(listingsQuery);
@@ -542,6 +546,9 @@ class AdminDashboard {
                             title="${user.isVerified ? 'Remove Verification' : 'Verify Seller'}">
                             <i class="fas fa-${user.isVerified ? 'times-circle' : 'check-circle'}"></i>
                         </button>
+                        <button class="btn-icon btn-primary" onclick="adminDashboard.messageUser('${user.id}', '${user.name || 'User'}')" title="Message User">
+                            <i class="fas fa-comment"></i>
+                        </button>
                         <button class="btn-icon btn-primary" onclick="adminDashboard.viewUserDetails('${user.id}')" title="View Details">
                             <i class="fas fa-eye"></i>
                         </button>
@@ -552,6 +559,311 @@ class AdminDashboard {
                 </td>
             `;
             tbody.appendChild(row);
+        });
+    }
+
+    async messageUser(userId, userName) {
+        if (!userId) {
+            showNotification('User information not available', 'error');
+            return;
+        }
+        
+        // Redirect to chat page with user
+        window.location.href = `chat.html?userId=${userId}&name=${encodeURIComponent(userName)}`;
+    }
+
+    async loadProducts() {
+        try {
+            const listingsSnapshot = await getDocs(collection(db, "Listings"));
+            this.products = [];
+            
+            for (const docSnap of listingsSnapshot.docs) {
+                const product = { id: docSnap.id, ...docSnap.data() };
+                
+                // Get seller info
+                if (product.uploaderId) {
+                    const sellerDoc = await getDoc(doc(db, "Users", product.uploaderId));
+                    if (sellerDoc.exists()) {
+                        product.sellerInfo = sellerDoc.data();
+                    }
+                }
+                
+                this.products.push(product);
+            }
+            
+            this.displayProducts();
+        } catch (error) {
+            console.error('Error loading products:', error);
+        }
+    }
+
+    displayProducts(productsToDisplay = this.products) {
+        const tbody = document.getElementById('listingsTableBody');
+        if (!tbody) return;
+        
+        tbody.innerHTML = '';
+
+        if (productsToDisplay.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align: center;">No listings found</td></tr>';
+            return;
+        }
+
+        productsToDisplay.forEach(product => {
+            const row = document.createElement('tr');
+            const isHidden = product.isHidden || false;
+            const isSuspended = product.isSuspended || false;
+            const createdDate = product.createdAt ? new Date(product.createdAt.toDate ? product.createdAt.toDate() : product.createdAt) : new Date();
+            
+            if (isHidden) row.classList.add('listing-hidden');
+            if (isSuspended) row.classList.add('listing-suspended');
+            
+            row.innerHTML = `
+                <td><img src="${product.photoTraceUrl || product.imageUrls?.[0] || 'images/placeholder.png'}" 
+                    alt="${product.name}" class="listing-image-thumb"></td>
+                <td><strong>${product.name}</strong><br><small>${product.brand || ''}</small></td>
+                <td>
+                    <div class="user-cell">
+                        <img src="${product.sellerInfo?.profilePicUrl || 'images/profile-placeholder.png'}" 
+                            alt="Seller" class="user-avatar" style="width: 30px; height: 30px;">
+                        <div>
+                            <strong style="font-size: 13px;">${product.sellerInfo?.name || 'Unknown'}</strong>
+                            <span class="text-small">${product.uploaderName || ''}</span>
+                        </div>
+                    </div>
+                </td>
+                <td>${product.category || 'N/A'}</td>
+                <td><strong>KES ${product.price?.toLocaleString() || 0}</strong></td>
+                <td>${product.totalStock || 0}</td>
+                <td>
+                    <span class="status-badge ${isSuspended ? 'suspended' : isHidden ? 'hidden' : 'active'}">
+                        ${isSuspended ? 'Suspended' : isHidden ? 'Hidden' : 'Active'}
+                    </span>
+                </td>
+                <td class="text-small">${createdDate.toLocaleDateString()}</td>
+                <td>
+                    <div class="action-buttons">
+                        <button class="btn-icon btn-primary" onclick="adminDashboard.editListing('${product.id}')" title="Edit Listing">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn-icon ${isHidden ? 'btn-success' : 'btn-warning'}" 
+                            onclick="adminDashboard.toggleListingVisibility('${product.id}', ${isHidden})" 
+                            title="${isHidden ? 'Show Listing' : 'Hide Listing'}">
+                            <i class="fas fa-eye${isHidden ? '' : '-slash'}"></i>
+                        </button>
+                        <button class="btn-icon ${isSuspended ? 'btn-success' : 'btn-danger'}" 
+                            onclick="adminDashboard.toggleListingSuspension('${product.id}', ${isSuspended})" 
+                            title="${isSuspended ? 'Unsuspend' : 'Suspend'}">
+                            <i class="fas fa-${isSuspended ? 'check' : 'ban'}"></i>
+                        </button>
+                        <button class="btn-icon btn-primary" onclick="adminDashboard.messageSellerFromListing('${product.uploaderId}', '${product.sellerInfo?.name || 'Seller'}')" title="Message Seller">
+                            <i class="fas fa-comment"></i>
+                        </button>
+                        <button class="btn-icon btn-danger" onclick="adminDashboard.deleteListing('${product.id}')" title="Delete Listing">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+
+    async toggleListingVisibility(listingId, currentlyHidden) {
+        try {
+            const newState = !currentlyHidden;
+            await updateDoc(doc(db, "Listings", listingId), {
+                isHidden: newState,
+                hiddenAt: newState ? Timestamp.now() : null,
+                hiddenBy: newState ? this.currentUser.uid : null
+            });
+            showNotification(`Listing ${newState ? 'hidden' : 'shown'} successfully`);
+            await this.loadProducts();
+        } catch (error) {
+            console.error('Error toggling listing visibility:', error);
+            showNotification('Error updating listing visibility', 'error');
+        }
+    }
+
+    async toggleListingSuspension(listingId, currentlySuspended) {
+        try {
+            const newState = !currentlySuspended;
+            const reason = newState ? prompt('Enter suspension reason:') : null;
+            
+            if (newState && !reason) {
+                showNotification('Suspension reason is required', 'error');
+                return;
+            }
+            
+            await updateDoc(doc(db, "Listings", listingId), {
+                isSuspended: newState,
+                suspensionReason: newState ? reason : null,
+                suspendedAt: newState ? Timestamp.now() : null,
+                suspendedBy: newState ? this.currentUser.uid : null
+            });
+            showNotification(`Listing ${newState ? 'suspended' : 'unsuspended'} successfully`);
+            await this.loadProducts();
+        } catch (error) {
+            console.error('Error toggling listing suspension:', error);
+            showNotification('Error updating listing suspension', 'error');
+        }
+    }
+
+    async deleteListing(listingId) {
+        if (!confirm('Are you sure you want to delete this listing? This action cannot be undone.')) return;
+        
+        try {
+            await deleteDoc(doc(db, "Listings", listingId));
+            showNotification('Listing deleted successfully');
+            await this.loadProducts();
+            await this.loadProductStats();
+        } catch (error) {
+            console.error('Error deleting listing:', error);
+            showNotification('Error deleting listing', 'error');
+        }
+    }
+
+    async editListing(listingId) {
+        const listing = this.products.find(p => p.id === listingId);
+        if (!listing) return;
+        
+        const modal = document.getElementById('orderDetailModal');
+        const content = document.getElementById('orderDetailContent');
+        
+        content.innerHTML = `
+            <div class="order-detail-header">
+                <h2>Edit Listing</h2>
+            </div>
+            <div class="edit-listing-form">
+                <div class="form-group">
+                    <label>Product Name:</label>
+                    <input type="text" id="editName" value="${listing.name}" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label>Price (KES):</label>
+                    <input type="number" id="editPrice" value="${listing.price}" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label>Stock:</label>
+                    <input type="number" id="editStock" value="${listing.totalStock || 0}" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label>Description:</label>
+                    <textarea id="editDescription" class="form-input" rows="4">${listing.description || ''}</textarea>
+                </div>
+                <div class="form-actions">
+                    <button class="btn-success" onclick="adminDashboard.saveListingEdit('${listingId}')">
+                        <i class="fas fa-save"></i> Save Changes
+                    </button>
+                    <button class="btn-danger" onclick="document.getElementById('orderDetailModal').style.display='none'">
+                        <i class="fas fa-times"></i> Cancel
+                    </button>
+                </div>
+            </div>
+        `;
+        modal.style.display = 'flex';
+    }
+
+    async saveListingEdit(listingId) {
+        try {
+            const name = document.getElementById('editName').value;
+            const price = parseFloat(document.getElementById('editPrice').value);
+            const stock = parseInt(document.getElementById('editStock').value);
+            const description = document.getElementById('editDescription').value;
+            
+            if (!name || !price || price < 0 || stock < 0) {
+                showNotification('Please fill all fields with valid values', 'error');
+                return;
+            }
+            
+            await updateDoc(doc(db, "Listings", listingId), {
+                name: name,
+                price: price,
+                totalStock: stock,
+                description: description,
+                lastEditedBy: this.currentUser.uid,
+                lastEditedAt: Timestamp.now()
+            });
+            
+            document.getElementById('orderDetailModal').style.display = 'none';
+            showNotification('Listing updated successfully');
+            await this.loadProducts();
+        } catch (error) {
+            console.error('Error saving listing edit:', error);
+            showNotification('Error saving changes', 'error');
+        }
+    }
+
+    async messageSellerFromListing(sellerId, sellerName) {
+        if (!sellerId) {
+            showNotification('Seller information not available', 'error');
+            return;
+        }
+        
+        // Redirect to chat page with seller
+        window.location.href = `chat.html?userId=${sellerId}&name=${encodeURIComponent(sellerName)}`;
+    }
+
+    async exportListingsToExcel() {
+        try {
+            showNotification('Preparing Excel export...');
+            
+            // Prepare data for export
+            const exportData = this.products.map(product => ({
+                'Product ID': product.id,
+                'Product Name': product.name,
+                'Brand': product.brand || 'N/A',
+                'Category': product.category || 'N/A',
+                'Price (KES)': product.price || 0,
+                'Stock': product.totalStock || 0,
+                'Seller Name': product.sellerInfo?.name || 'Unknown',
+                'Seller Email': product.sellerInfo?.email || 'N/A',
+                'Seller Phone': product.sellerInfo?.phoneNumber || product.sellerInfo?.phone || 'N/A',
+                'Status': product.isSuspended ? 'Suspended' : product.isHidden ? 'Hidden' : 'Active',
+                'Description': product.description || 'N/A',
+                'Created Date': product.createdAt ? new Date(product.createdAt.toDate ? product.createdAt.toDate() : product.createdAt).toLocaleDateString() : 'N/A',
+                'Views': product.views || 0,
+                'Condition': product.condition || 'N/A',
+                'Location': product.location || 'N/A'
+            }));
+
+            // Convert to CSV
+            const headers = Object.keys(exportData[0]);
+            const csvContent = [
+                headers.join(','),
+                ...exportData.map(row => 
+                    headers.map(header => {
+                        const value = row[header]?.toString() || '';
+                        // Escape commas and quotes in CSV
+                        return `\"${value.replace(/\"/g, '\"\"')}\"`;
+                    }).join(',')
+                )
+            ].join('\\n');
+
+            // Create download
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', `OdaPap_Listings_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            showNotification('Listings exported successfully!');
+        } catch (error) {
+            console.error('Error exporting listings:', error);
+            showNotification('Error exporting to Excel', 'error');
+        }
+    }
+
+    async loadUsers() {
+        try {
+            const usersSnapshot = await getDocs(collection(db, "Users"));
+            this.users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            this.displayUsers();
+        } catch (error) {
+            console.error('Error loading users:', error);
         }
     }
 
