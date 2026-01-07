@@ -306,6 +306,37 @@ body {
     gap: 16px;
 }
 
+.header-actions {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.btn-export {
+    padding: 10px 20px;
+    background: #107C41;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.3s ease;
+}
+
+.btn-export:hover {
+    background: #0d6635;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(16, 124, 65, 0.3);
+}
+
+.btn-export i {
+    font-size: 16px;
+}
+
 .filter-group {
     display: flex;
     align-items: center;
@@ -504,6 +535,76 @@ body {
     display: flex;
     gap: 4px;
     align-items: center;
+    flex-wrap: wrap;
+}
+
+/* Listing Actions */
+.listing-image-thumb {
+    width: 50px;
+    height: 50px;
+    object-fit: cover;
+    border-radius: 6px;
+}
+
+.listing-hidden {
+    opacity: 0.5;
+    background: #ffebee !important;
+}
+
+.listing-suspended {
+    opacity: 0.6;
+    background: #fff3e0 !important;
+}
+
+.status-badge.hidden {
+    background: #ffebee;
+    color: #c62828;
+}
+
+.status-badge.suspended {
+    background: #fff3e0;
+    color: #f57c00;
+}
+
+.status-badge.active {
+    background: #e8f5e9;
+    color: #388e3c;
+}
+
+.btn-message {
+    background: #2196F3;
+    color: white;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.3s ease;
+}
+
+.btn-message:hover {
+    background: #1976d2;
+}
+
+.btn-toggle-visibility {
+    background: #ff9800;
+    color: white;
+}
+
+.btn-toggle-visibility:hover {
+    background: #f57c00;
+}
+
+.btn-suspend {
+    background: #ff5722;
+    color: white;
+}
+
+.btn-suspend:hover {
+    background: #e64a19;
 }
 
 /* User Cell */
@@ -971,6 +1072,16 @@ body {
         align-items: stretch;
     }
 
+    .header-actions {
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .btn-export {
+        width: 100%;
+        justify-content: center;
+    }
+
     .search-box input {
         width: 100%;
     }
@@ -983,4 +1094,137 @@ body {
     .data-table td {
         padding: 12px 8px;
     }
+}
+
+/* Edit Listing Form */
+.edit-listing-form {
+    padding: 20px 0;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--dark);
+}
+
+.form-input {
+    width: 100%;
+    padding: 12px 16px;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+}
+
+.form-input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.form-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 24px;
+}
+
+.form-actions button {
+    flex: 1;
+    padding: 12px 24px;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.3s ease;
+}
+
+/* Settings Card */
+.settings-card {
+    background: white;
+    padding: 24px;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    margin-bottom: 24px;
+}
+
+.settings-card h3 {
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--dark);
+}
+
+.settings-card > p {
+    color: var(--gray);
+    margin-bottom: 20px;
+}
+
+.admin-add-form {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.admin-add-form input {
+    flex: 1;
+    min-width: 250px;
+    padding: 10px 16px;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+}
+
+.admin-add-form input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.btn-primary {
+    padding: 10px 20px;
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-primary:hover {
+    background: var(--primary-dark);
+}
+
+.settings-options {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.setting-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    background: var(--light);
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.setting-item input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
 }
