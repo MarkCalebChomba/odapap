@@ -13,6 +13,13 @@ const db = getFirestore(app);
 
 // State
 let allListings = [];
+let listingsCache = null;
+let listingsCacheTime = 0;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
+
+// User cache to avoid repeated reads
+const userCache = new Map();
+const USER_CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
 
 // Category Icons
 const catIcons = {
@@ -174,16 +181,49 @@ window.logout = async () => {
   location.reload();
 };
 
+// ===== CACHED USER FETCH =====
+async function getCachedUser(userId) {
+  const now = Date.now();
+  const cached = userCache.get(userId);
+  
+  if (cached && (now - cached.time) < USER_CACHE_DURATION) {
+    return cached.data;
+  }
+  
+  try {
+    const u = await getDoc(doc(db, "Users", userId));
+    const data = u.exists() ? u.data() : {};
+    userCache.set(userId, { data, time: now });
+    return data;
+  } catch {
+    return {};
+  }
+}
+
+// ===== CACHED LISTINGS FETCH =====
+async function getCachedListings() {
+  const now = Date.now();
+  
+  if (listingsCache && (now - listingsCacheTime) < CACHE_DURATION) {
+    return listingsCache;
+  }
+  
+  const snap = await getDocs(collection(db, "Listings"));
+  listingsCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  listingsCacheTime = now;
+  return listingsCache;
+}
+
 // ===== CATEGORIES =====
 async function loadCategories() {
   const strip = $('categoryStrip');
   if (!strip) return;
   
-  // Get counts
-  const snap = await getDocs(collection(db, "Listings"));
+  // Use cached listings
+  const listings = await getCachedListings();
   const counts = {};
-  snap.forEach(d => {
-    const cat = d.data().category;
+  listings.forEach(l => {
+    const cat = l.category;
     counts[cat] = (counts[cat] || 0) + 1;
   });
   
@@ -201,34 +241,29 @@ async function loadCategories() {
 
 // ===== PRODUCTS - Match Category Page Gallery Style =====
 async function loadProducts() {
-  // Don't show blocking loader - let content load progressively
-  
   try {
-    const snap = await getDocs(collection(db, "Listings"));
+    // Use cached listings
+    const listings = await getCachedListings();
     
     // Get unique seller IDs
     const sellerIds = new Set();
-    snap.forEach(d => sellerIds.add(d.data().uploaderId || d.data().userId));
+    listings.forEach(l => sellerIds.add(l.uploaderId || l.userId));
     
-    // Batch fetch sellers
+    // Batch fetch sellers using cache
     const sellers = {};
     await Promise.all([...sellerIds].map(async id => {
-      try {
-        const u = await getDoc(doc(db, "Users", id));
-        if (u.exists()) sellers[id] = u.data();
-      } catch {}
+      sellers[id] = await getCachedUser(id);
     }));
     
     // Build listings
-    allListings = snap.docs.map(d => {
-      const data = d.data();
+    allListings = listings.map(data => {
       const sellerId = data.uploaderId || data.userId;
       const seller = sellers[sellerId] || {};
       const priceData = getMinPriceFromVariations(data);
       const packInfo = getPackInfo(data);
       
       return {
-        id: d.id,
+        id: data.id,
         ...data,
         sellerId,
         sellerName: seller.name || seller.username || 'Seller',

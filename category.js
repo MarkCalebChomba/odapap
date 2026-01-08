@@ -25,6 +25,29 @@ const auth = getAuth(app);
 const storage = getStorage(app);
 const firestore = getFirestore(app);
 
+// Caching for Firestore reads
+const userCache = new Map();
+const USER_CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
+
+// Cached user fetch function
+async function getCachedUser(userId) {
+  const now = Date.now();
+  const cached = userCache.get(userId);
+  
+  if (cached && (now - cached.time) < USER_CACHE_DURATION) {
+    return cached.data;
+  }
+  
+  try {
+    const u = await getDoc(doc(firestore, "Users", userId));
+    const data = u.exists() ? u.data() : {};
+    userCache.set(userId, { data, time: now });
+    return data;
+  } catch {
+    return {};
+  }
+}
+
 // RateLimiter class definition
 class RateLimiter {
   constructor(maxRequests, interval) {
@@ -656,20 +679,18 @@ const loadFeaturedListings = async (filterCriteria = {}, isInitialLoad = false) 
       return;
     }
 
+    // Batch fetch all unique user IDs first (reduces reads)
+    const uniqueUserIds = [...new Set(filteredListings.map(l => l.uploaderId || l.userId).filter(Boolean))];
+    const userDataMap = {};
+    
+    // Fetch all users in parallel using cache
+    await Promise.all(uniqueUserIds.map(async (userId) => {
+      userDataMap[userId] = await getCachedUser(userId);
+    }));
+
     for (const listing of filteredListings) {
       const uploaderId = listing.uploaderId || listing.userId;
-      let userData = {};
-
-      if (uploaderId) {
-        try {
-          const userDoc = await getDoc(doc(firestore, "Users", uploaderId));
-          if (userDoc.exists()) {
-            userData = userDoc.data();
-          }
-        } catch (error) {
-          console.error(`Error fetching user data:`, error);
-        }
-      }
+      const userData = userDataMap[uploaderId] || {};
 
       const displayName = userData.name || userData.username || "Unknown User";
       const imageUrls = listing.imageUrls || [];
