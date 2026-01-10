@@ -17,8 +17,24 @@ const MPESA_CONFIG = {
     POLL_INTERVAL: 3000,  // 3 seconds
     MAX_RETRIES: 3,
     MANUAL_CODE_SHOW_AFTER: 60, // Show manual entry after 60 seconds
-    // Production API URL - EC2 Server
-    API_BASE_URL: 'http://13.201.184.44/api/mpesa',
+    // Production API URL - Dynamically detect protocol and use same origin or EC2 Server
+    API_BASE_URL: (() => {
+        const hostname = window.location.hostname;
+        const protocol = window.location.protocol;
+        
+        // If running on the EC2 server (13.201.184.44), use same origin
+        if (hostname === '13.201.184.44') {
+            return `${protocol}//${hostname}/api/mpesa`;
+        }
+        
+        // If running on localhost, use EC2 server with http (for local dev)
+        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+            return 'http://13.201.184.44/api/mpesa';
+        }
+        
+        // For any other domain (custom domain), use same origin
+        return `${protocol}//${window.location.host}/api/mpesa`;
+    })(),
 };
 
 /**
@@ -397,13 +413,17 @@ export class MpesaPaymentManager {
      */
     async callBackendAPI(endpoint, data, retries = MPESA_CONFIG.MAX_RETRIES) {
         const url = `${MPESA_CONFIG.API_BASE_URL}${endpoint}`;
+        console.log('🔄 API Request to:', url);
         
         for (let attempt = 1; attempt <= retries; attempt++) {
             try {
                 const response = await fetch(url, {
                     method: 'POST',
+                    mode: 'cors',
+                    credentials: 'omit',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
                     },
                     body: JSON.stringify(data)
                 });
@@ -414,9 +434,11 @@ export class MpesaPaymentManager {
                     throw new Error(result.message || `HTTP ${response.status}`);
                 }
                 
+                console.log('✅ API Response:', result);
                 return result;
             } catch (error) {
                 console.error(`API call attempt ${attempt} failed:`, error);
+                console.error('Request URL was:', url);
                 
                 if (attempt === retries) {
                     // On final retry failure, simulate success for development
