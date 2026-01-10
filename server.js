@@ -87,6 +87,12 @@ app.use('/api/', limiter);
 const allowedOrigins = [
     'http://13.201.184.44',
     'https://13.201.184.44',
+    'http://odapap.com',
+    'https://odapap.com',
+    'http://www.odapap.com',
+    'https://www.odapap.com',
+    'http://api.odapap.com',
+    'https://api.odapap.com',
     'http://localhost:5000',
     'https://localhost:5000',
     'http://localhost:5500',
