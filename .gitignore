@@ -1,17 +1,51 @@
-# Environment files (SECRETS - NEVER UPLOAD!)
+# ⚠️ SECURITY - NEVER COMMIT THESE
+# Environment files (SECRETS - ALL VARIANTS)
 .env
 .env.local
 .env.production
+.env.production.local
 .env*.local
+.env.*.local
+
+# SSH/API Keys and Certificates
+*.pem
+*.key
+*.crt
+*.pub
+*.pfx
+id_rsa*
+id_dsa*
+
+# Deployment/Server Configuration (EXPOSES INFRASTRUCTURE)
+DEPLOY_NOW.md
+EC2_DEPLOYMENT_GUIDE.md
+ecosystem.config.js
+nginx*.conf
+.pm2/
+pm2.log
+
+# Source files (BUSINESS LOGIC & VULNERABILITY ANALYSIS)
+server.js
+firestore.rules
+firebase.json
+
+# Database files
+*.db
+*.sql
+*.sqlite
+*.sqlite3
+*.dump
 
 # Dependency folders
 node_modules/
 package-lock.json
+yarn.lock
 
 # Log files
 logs/
 *.log
 npm-debug.log*
+yarn-error.log*
 
 # OS files
 .DS_Store
@@ -23,22 +57,27 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+.env.local
+.DS_Store
 
-# PM2 files
-ecosystem.config.js
+# Temporary/Cache files
+*.tmp
+*.temp
+.cache/
+.next/
+.nuxt/
 
-# Server config (contains server IP)
-nginx*.conf
+# Backup files
+*.bak
+*.backup
+*~
 
-# Keys and certificates
-*.pem
-*.key
-*.crt
+# Session/Auth files
+sessions/
+.session
+cookies.json
 
 # Build outputs
 dist/
 build/
-
-# Temporary files
-*.tmp
-*.temp
+out/
