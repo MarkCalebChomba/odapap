@@ -6,50 +6,153 @@ import {
   onAuthStateChanged,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   sendPasswordResetEmail
 } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
-import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+import { getFirestore, doc, setDoc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
 
 const firestore = getFirestore();
+
+// Helper function to get user-friendly error messages
+const getErrorMessage = (error) => {
+  const errorMessages = {
+    'auth/user-not-found': 'No account found with this email. Please sign up first.',
+    'auth/wrong-password': 'Incorrect password. Please try again.',
+    'auth/invalid-email': 'Please enter a valid email address.',
+    'auth/email-already-in-use': 'This email is already registered. Please login instead.',
+    'auth/weak-password': 'Password must be at least 6 characters long.',
+    'auth/network-request-failed': 'Network error. Please check your internet connection.',
+    'auth/too-many-requests': 'Too many failed attempts. Please try again later.',
+    'auth/popup-blocked': 'Popup was blocked. Please allow popups or try again.',
+    'auth/popup-closed-by-user': 'Sign-in was cancelled. Please try again.',
+    'auth/cancelled-popup-request': 'Sign-in was cancelled.',
+    'auth/invalid-credential': 'Invalid email or password. Please check and try again.',
+    'auth/operation-not-allowed': 'This sign-in method is not enabled.',
+    'auth/account-exists-with-different-credential': 'An account already exists with this email using a different sign-in method.'
+  };
+  return errorMessages[error.code] || error.message || 'An error occurred. Please try again.';
+};
 
 // Function to log in a user
 export const loginUser = async (email, password) => {
   try {
-    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    // Validate inputs
+    if (!email || !email.trim()) {
+      throw { code: 'auth/invalid-email', message: 'Please enter your email address.' };
+    }
+    if (!password) {
+      throw { code: 'auth/wrong-password', message: 'Please enter your password.' };
+    }
+    
+    const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
     console.log("Login successful:", userCredential);
     return userCredential;
   } catch (error) {
-    console.error("Login error:", error.message);
-    throw error;
+    console.error("Login error:", error.code, error.message);
+    const friendlyError = new Error(getErrorMessage(error));
+    friendlyError.code = error.code;
+    throw friendlyError;
   }
 };
 
-// Function to sign up a new user
-const signUpUser = async (email, phone, password) => {
+// Function to sign up a new user with optional survey data
+export const signUpUser = async (email, phone, password, surveyData = null) => {
   try {
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    // Validate inputs
+    if (!email || !email.trim()) {
+      throw { code: 'auth/invalid-email', message: 'Please enter your email address.' };
+    }
+    if (!phone || !phone.trim()) {
+      throw { code: 'custom/missing-phone', message: 'Please enter your phone number.' };
+    }
+    if (!password || password.length < 6) {
+      throw { code: 'auth/weak-password', message: 'Password must be at least 6 characters long.' };
+    }
+    
+    const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
     const user = userCredential.user;
 
-    // Store additional user information in Firestore
-    await setDoc(doc(firestore, "Users", user.uid), {
+    // Build user data object
+    const userData = {
       email: user.email,
-      phone: phone,
+      phone: phone.trim(),
       name: "",
-      profilePicUrl: "images/profile-placeholder.png"
-    });
+      profilePicUrl: "images/profile-placeholder.png",
+      createdAt: new Date().toISOString()
+    };
+    
+    // Add survey data if provided
+    if (surveyData) {
+      userData.surveyCompleted = true;
+      userData.surveyData = surveyData;
+    }
+
+    // Store additional user information in Firestore
+    await setDoc(doc(firestore, "Users", user.uid), userData);
 
     return user;
   } catch (error) {
-    console.error('Error signing up:', error);
+    console.error('Error signing up:', error.code, error.message);
+    const friendlyError = new Error(getErrorMessage(error));
+    friendlyError.code = error.code;
+    throw friendlyError;
+  }
+};
+
+// Function to update user survey data
+export const updateUserSurvey = async (userId, surveyData) => {
+  try {
+    await updateDoc(doc(firestore, "Users", userId), {
+      surveyCompleted: true,
+      surveyData: surveyData,
+      surveyCompletedAt: new Date().toISOString()
+    });
+    return true;
+  } catch (error) {
+    console.error('Error saving survey:', error);
     throw error;
   }
 };
 
-// Function to sign in with Google
+// Detect if user is on mobile
+const isMobileDevice = () => {
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+};
+
+// Function to sign in with Google - with fallback for popup blockers
 export const signInWithGoogle = async () => {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({
+    prompt: 'select_account'
+  });
+  
   try {
-    const provider = new GoogleAuthProvider();
-    const result = await signInWithPopup(auth, provider);
+    let result;
+    
+    // Try popup first (works better on desktop)
+    if (!isMobileDevice()) {
+      try {
+        result = await signInWithPopup(auth, provider);
+      } catch (popupError) {
+        // If popup is blocked or fails, fall back to redirect
+        if (popupError.code === 'auth/popup-blocked' || 
+            popupError.code === 'auth/popup-closed-by-user' ||
+            popupError.code === 'auth/cancelled-popup-request') {
+          console.log('Popup failed, using redirect...');
+          await signInWithRedirect(auth, provider);
+          return null; // Will handle in redirect result
+        }
+        throw popupError;
+      }
+    } else {
+      // Use redirect for mobile devices (more reliable)
+      await signInWithRedirect(auth, provider);
+      return null;
+    }
+    
+    if (!result) return null;
+    
     const user = result.user;
     
     // Check if user already exists in Firestore
@@ -61,7 +164,8 @@ export const signInWithGoogle = async () => {
         email: user.email,
         phone: "",
         name: user.displayName || "",
-        profilePicUrl: user.photoURL || "images/profile-placeholder.png"
+        profilePicUrl: user.photoURL || "images/profile-placeholder.png",
+        createdAt: new Date().toISOString()
       });
       
       return {
@@ -70,19 +174,67 @@ export const signInWithGoogle = async () => {
       };
     } else {
       // Existing user
+      const userData = userDoc.data();
       return {
         user: user,
-        isNewUser: false
+        isNewUser: false,
+        needsSurvey: !userData.surveyCompleted
       };
     }
   } catch (error) {
-    console.error('Error signing in with Google:', error);
-    throw error;
+    console.error('Error signing in with Google:', error.code, error.message);
+    const friendlyError = new Error(getErrorMessage(error));
+    friendlyError.code = error.code;
+    throw friendlyError;
+  }
+};
+
+// Handle redirect result (call this on page load)
+export const handleGoogleRedirectResult = async () => {
+  try {
+    const result = await getRedirectResult(auth);
+    if (result) {
+      const user = result.user;
+      const userDoc = await getDoc(doc(firestore, "Users", user.uid));
+      
+      if (!userDoc.exists()) {
+        await setDoc(doc(firestore, "Users", user.uid), {
+          email: user.email,
+          phone: "",
+          name: user.displayName || "",
+          profilePicUrl: user.photoURL || "images/profile-placeholder.png",
+          createdAt: new Date().toISOString()
+        });
+        
+        return { user, isNewUser: true };
+      }
+      
+      const userData = userDoc.data();
+      return { user, isNewUser: false, needsSurvey: !userData.surveyCompleted };
+    }
+    return null;
+  } catch (error) {
+    console.error('Redirect result error:', error);
+    return null;
+  }
+};
+
+// Check if survey is enabled from settings
+export const checkSurveyEnabled = async () => {
+  try {
+    const settingsDoc = await getDoc(doc(firestore, "Settings", "appSettings"));
+    if (settingsDoc.exists()) {
+      return settingsDoc.data().surveyEnabled === true;
+    }
+    return false;
+  } catch (error) {
+    console.error('Error checking survey settings:', error);
+    return false;
   }
 };
 
 // Function to log out a user
-const logoutUser = async () => {
+export const logoutUser = async () => {
   try {
     await signOut(auth);
     console.log('User logged out');
@@ -93,7 +245,7 @@ const logoutUser = async () => {
 };
 
 // Function to listen to auth state changes
-const onAuthChange = (callback) => {
+export const onAuthChange = (callback) => {
   onAuthStateChanged(auth, callback);
 };
 
@@ -108,6 +260,3 @@ export const sendPasswordReset = async (email) => {
     throw error;
   }
 };
-
-// Export the functions to use them in other files
-export { signUpUser, logoutUser, onAuthChange };
