@@ -8,6 +8,7 @@
 
 import { getFirestore, collection, doc, addDoc, getDoc, updateDoc, serverTimestamp, query, where, getDocs, onSnapshot } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
 import { app } from './firebase.js';
+import axios from 'axios';
 
 const db = getFirestore(app);
 
@@ -19,24 +20,8 @@ const MPESA_CONFIG = {
     MANUAL_CODE_SHOW_AFTER: 60, // Show manual entry after 60 seconds
     // Production API URL - Use api.odapap.com subdomain for M-Pesa API
     // Main site (odapap.com) is on GitHub Pages, API subdomain points to EC2
-    API_BASE_URL: (() => {
-        const hostname = window.location.hostname;
-        const protocol = window.location.protocol;
-        
-        // If running on the EC2 server directly, use same origin
-        if (hostname === '13.201.184.44') {
-            return `${protocol}//${hostname}/api/mpesa`;
-        }
-        
-        // If running on localhost, use EC2 server directly (for local dev)
-        if (hostname === 'localhost' || hostname === '127.0.0.1') {
-            return 'http://13.201.184.44/api/mpesa';
-        }
-        
-        // For production (odapap.com), use api subdomain with same protocol
-        // This requires: api.odapap.com DNS A record → 13.201.184.44
-        return `${protocol}//api.odapap.com/api/mpesa`;
-    })(),
+API_BASE_URL: 'http://13.201.184.44/api/mpesa',
+
 };
 
 /**
@@ -609,6 +594,20 @@ export async function checkFreeShipping(orderTotal) {
     }
     
     return false;
+}
+
+/**
+ * M-Pesa integration helper functions
+ */
+
+async function initiateSTKPush({ phone, amount, accountReference, transactionDesc }) {
+    const response = await axios.post('/api/mpesa/stkpush', {
+        phone,
+        amount,
+        accountReference,
+        transactionDesc
+    });
+    return response.data;
 }
 
 export default MpesaPaymentManager;
